@@ -11,6 +11,12 @@
 
     <div class="tab-wrapper bg-400">
       <div class="component-wrapper page-wrapper">
+        <div class="search">
+          <input placeholder="Search Backlog">
+          <div class="ico-wrapper">
+            <mat-icon>search</mat-icon>
+          </div>
+        </div>
         <task-list [tasks]="taskService.backlogTasks$|async"
                    [noTasksMsg]="'There are currently no tasks in your backlog'"
                    listId="PARENT"
