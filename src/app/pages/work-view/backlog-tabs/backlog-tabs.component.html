@@ -1,3 +1,18 @@
+<div class="search"
+     *ngIf="selectedIndex===0"
+     [class.isShow]="isShowSearch">
+  <input placeholder="Search Backlog"
+         #searchInputEl
+         (blur)="isShowSearch=false"
+         class="bg-300 mat-elevation-z3">
+  <button mat-fab
+          (click)="focusSearch()"
+          color="lighter"
+          class="ico-wrapper">
+    <mat-icon>search</mat-icon>
+  </button>
+</div>
+
 <mat-tab-group (selectedIndexChange)="indexChange($event)"
                [selectedIndex]="selectedIndex"
                color="darker"
@@ -11,12 +26,6 @@
 
     <div class="tab-wrapper bg-400">
       <div class="component-wrapper page-wrapper">
-        <div class="search">
-          <input placeholder="Search Backlog">
-          <div class="ico-wrapper">
-            <mat-icon>search</mat-icon>
-          </div>
-        </div>
         <task-list [tasks]="taskService.backlogTasks$|async"
                    [noTasksMsg]="'There are currently no tasks in your backlog'"
                    listId="PARENT"

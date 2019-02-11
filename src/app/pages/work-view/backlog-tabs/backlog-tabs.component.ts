@@ -1,19 +1,22 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Input, ViewChild } from '@angular/core';
 import { TaskService } from '../../../features/tasks/task.service';
 import { ReminderService } from '../../../features/reminder/reminder.service';
 import { DialogAddTaskReminderComponent } from '../../../features/tasks/dialog-add-task-reminder/dialog-add-task-reminder.component';
 import { MatDialog } from '@angular/material';
-import { Task, TaskWithReminderData } from '../../../features/tasks/task.model';
+import { TaskWithReminderData } from '../../../features/tasks/task.model';
 import { standardListAnimation } from '../../../ui/animations/standard-list.ani';
+import { fadeAnimation } from '../../../ui/animations/fade.ani';
 
 @Component({
   selector: 'backlog-tabs',
   templateUrl: './backlog-tabs.component.html',
   styleUrls: ['./backlog-tabs.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  animations: [standardListAnimation]
+  animations: [standardListAnimation, fadeAnimation]
 })
 export class BacklogTabsComponent {
+  @ViewChild('searchInputEl') searchInputEl: ElementRef;
+  isShowSearch = false;
   selectedIndex = 0;
 
   constructor(
@@ -25,6 +28,7 @@ export class BacklogTabsComponent {
   }
 
   indexChange(index) {
+    this.selectedIndex = index;
   }
 
   trackByFn(i: number, task: TaskWithReminderData) {
@@ -52,5 +56,12 @@ export class BacklogTabsComponent {
         task: task,
       }
     });
+  }
+
+  focusSearch() {
+    if (!this.isShowSearch) {
+      this.isShowSearch = true;
+      this.searchInputEl.nativeElement.focus();
+    }
   }
 }
