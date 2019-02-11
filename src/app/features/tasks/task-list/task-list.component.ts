@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  Input,
+  OnDestroy,
+  OnInit,
+  ViewChild
+} from '@angular/core';
 import { Task, TaskWithSubTasks } from '../task.model';
 import { TaskService } from '../task.service';
 import { DragulaService } from 'ng2-dragula';
@@ -35,6 +43,7 @@ export class TaskListComponent implements OnDestroy, OnInit {
   @Input() listId: string;
   @Input() listModelId: string;
   @Input() noTasksMsg: string;
+  @Input() isDisableSort: boolean;
   @ViewChild('listEl') listEl;
   subs = new Subscription();
   isBlockAni = true;

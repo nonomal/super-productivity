@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, Input, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, ViewChild } from '@angular/core';
 import { TaskService } from '../../../features/tasks/task.service';
 import { ReminderService } from '../../../features/reminder/reminder.service';
 import { DialogAddTaskReminderComponent } from '../../../features/tasks/dialog-add-task-reminder/dialog-add-task-reminder.component';
@@ -6,6 +6,9 @@ import { MatDialog } from '@angular/material';
 import { TaskWithReminderData } from '../../../features/tasks/task.model';
 import { standardListAnimation } from '../../../ui/animations/standard-list.ani';
 import { fadeAnimation } from '../../../ui/animations/fade.ani';
+import { FormControl } from '@angular/forms';
+import { combineLatest } from 'rxjs';
+import { map, startWith } from 'rxjs/operators';
 
 @Component({
   selector: 'backlog-tabs',
@@ -18,6 +21,21 @@ export class BacklogTabsComponent {
   @ViewChild('searchInputEl') searchInputEl: ElementRef;
   isShowSearch = false;
   selectedIndex = 0;
+  searchControl: FormControl = new FormControl();
+  backlogTasks$ = combineLatest(
+    this.searchControl.valueChanges.pipe(startWith('')),
+    this.taskService.backlogTasks$,
+  ).pipe(
+    map(([searchTerm, tasks]) => {
+      if (!tasks) {
+        return tasks;
+      }
+
+      return searchTerm && searchTerm.length > 0
+        ? tasks.filter((task) => task.title.match(searchTerm))
+        : tasks;
+    })
+  );
 
   constructor(
     public taskService: TaskService,

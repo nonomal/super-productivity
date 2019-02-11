@@ -15,6 +15,7 @@
      [@standardList]="isBlockAni ? 'BLOCK' : (filteredTasks$|async)?.length"
      #listEl>
   <task *ngFor="let task of (filteredTasks$|async); trackBy: trackByFn; let i = index;"
+        [isDisableSort]="isDisableSort"
         [task]="task">
   </task>
 </div>

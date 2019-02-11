@@ -38,6 +38,8 @@ import { DialogAddTaskReminderComponent } from '../dialog-add-task-reminder/dial
 })
 export class TaskComponent implements OnInit, OnDestroy, AfterViewInit {
   @Input() task: TaskWithSubTasks;
+  @Input() isDisableSort: boolean;
+
   isDragOver: boolean;
   isCurrent: boolean;
 
@@ -417,14 +419,14 @@ export class TaskComponent implements OnInit, OnDestroy, AfterViewInit {
 
     // moving items
     // move task up
-    if (checkKeyCombo(ev, keys.moveTaskUp)) {
+    if (checkKeyCombo(ev, keys.moveTaskUp) && !this.isDisableSort) {
       this._taskService.moveUp(this.task.id);
       ev.stopPropagation();
       ev.preventDefault();
       // timeout required to let changes take place @TODO hacky
       setTimeout(this.focusSelf.bind(this));
     }
-    if (checkKeyCombo(ev, keys.moveTaskDown)) {
+    if (checkKeyCombo(ev, keys.moveTaskDown) && !this.isDisableSort) {
       this._taskService.moveDown(this.task.id);
       ev.stopPropagation();
       ev.preventDefault();
