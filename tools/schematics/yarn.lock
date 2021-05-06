@@ -2,10 +2,10 @@
 # yarn lockfile v1
 
 
-"@angular-devkit/core@11.2.10", "@angular-devkit/core@^11.2.10":
-  version "11.2.10"
-  resolved "https://registry.yarnpkg.com/@angular-devkit/core/-/core-11.2.10.tgz#ddf37ecbac9af8e0d2801c1827e81e9b3431241d"
-  integrity sha512-3QBluhsnXsntbl0ybHuXtuH/HBChqibXKmzrENj2n+SKlHFOYhE9PJCSfE6q1kwKN+zg6avOETVziI2pP5xtJQ==
+"@angular-devkit/core@11.2.12", "@angular-devkit/core@^11.2.10":
+  version "11.2.12"
+  resolved "https://registry.yarnpkg.com/@angular-devkit/core/-/core-11.2.12.tgz#b80843d2ff9ac934ae4f31ed22dbc1d4b803bd95"
+  integrity sha512-VMRMmRj6ZX32cWpuA6vD4KSmji17yC4EtbXsiqrHZ8zAho4ifu8xImCC5PugTQnHa+RlIadOXwXX89aujUEwRw==
   dependencies:
     ajv "6.12.6"
     fast-json-stable-stringify "2.1.0"
@@ -13,22 +13,22 @@
     rxjs "6.6.3"
     source-map "0.7.3"
 
-"@angular-devkit/schematics@11.2.10", "@angular-devkit/schematics@^11.2.10":
-  version "11.2.10"
-  resolved "https://registry.yarnpkg.com/@angular-devkit/schematics/-/schematics-11.2.10.tgz#0986e41943d3502e91db239c12109571e51d1585"
-  integrity sha512-T1V6mCwc2GYKAWMtCy2HaCxLw1kydu36tGV+dKjKHEwE+8cDgRRT5FhQ+XZzehVDeK9GvDu8Znur1F6i/WmKgw==
+"@angular-devkit/schematics@11.2.12", "@angular-devkit/schematics@^11.2.10":
+  version "11.2.12"
+  resolved "https://registry.yarnpkg.com/@angular-devkit/schematics/-/schematics-11.2.12.tgz#a2b7b02f6677a2fa9f4f6716f0aaa87347d41509"
+  integrity sha512-d1fxxkLPtP87iwAFZ0iUNWMlqULm05bbnRc5g5vrFxdtpwwybC15+NS64d3gzX0vAvnCa+cDQkjeD92bJJNjLw==
   dependencies:
-    "@angular-devkit/core" "11.2.10"
+    "@angular-devkit/core" "11.2.12"
     ora "5.3.0"
     rxjs "6.6.3"
 
-"@schematics/angular@^11.2.10":
-  version "11.2.10"
-  resolved "https://registry.yarnpkg.com/@schematics/angular/-/angular-11.2.10.tgz#2dcd11141deb2609f45d57965920b77b977ba7d9"
-  integrity sha512-WcqiUl2HcE5E6HbAFKhFOUeqQEqNL++o6UsKcgk8rQkx5RM7ZkT6uksxiwhfpKzSIqUjwx+xe66fP6pweNZ/yQ==
+"@schematics/angular@^11.2.12":
+  version "11.2.12"
+  resolved "https://registry.yarnpkg.com/@schematics/angular/-/angular-11.2.12.tgz#1a9db7fc3ac6b520dd6607ec5096842d1e9e8d09"
+  integrity sha512-QCFdJhJtHrytl2L9VAdKYzSS1+R5LpjQ+pw3f/10YeEEoUHk7QyuYXmMnreCYBWSKrloO+3Q+vhdnVWUQZSRng==
   dependencies:
-    "@angular-devkit/core" "11.2.10"
-    "@angular-devkit/schematics" "11.2.10"
+    "@angular-devkit/core" "11.2.12"
+    "@angular-devkit/schematics" "11.2.12"
     jsonc-parser "3.0.0"
 
 "@types/jasmine@^3.6.9":
