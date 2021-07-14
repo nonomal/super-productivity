@@ -6,51 +6,58 @@ import * as pThrottle from 'p-throttle';
 import * as newGithubIssueUrl from 'new-github-issue-url';
 import { remote } from 'electron';
 import { getBeforeLastErrorActionLog } from '../../util/action-logger';
+import { download } from '../../util/download';
+import { AppDataComplete } from '../../imex/sync/sync.model';
 
 let isWasErrorAlertCreated = false;
 
-async function _getStacktrace(err: Error | any): Promise<string> {
+const _getStacktrace = async (err: Error | any): Promise<string> => {
   const isHttpError = err && (err.url || err.headers);
   const isErrorWithStack = err && err.stack;
 
   // Don't try to send stacktraces of HTTP errors as they are already logged on the server
   if (!isHttpError && isErrorWithStack && !isHandledError(err)) {
-    return StackTrace.fromError(err)
-      .then((stackframes) => {
-        return stackframes
-          .splice(0, 20)
-          .map((sf) => {
-            return sf.toString();
-          }).join('\n');
-      });
+    return StackTrace.fromError(err).then((stackframes) => {
+      return stackframes
+        .splice(0, 20)
+        .map((sf) => {
+          return sf.toString();
+        })
+        .join('\n');
+    });
   } else if (!isHandledError(err)) {
     console.warn('Error without stack', err);
   }
   return Promise.resolve('');
-}
+};
 
 const _getStacktraceThrottled = pThrottle(_getStacktrace, 2, 5000);
 
-export const logAdvancedStacktrace = (origErr: unknown, additionalLogFn?: (stack: string) => void) => _getStacktraceThrottled(origErr).then(stack => {
+export const logAdvancedStacktrace = (
+  origErr: unknown,
+  additionalLogFn?: (stack: string) => void,
+) =>
+  _getStacktraceThrottled(origErr)
+    .then((stack) => {
+      if (additionalLogFn) {
+        additionalLogFn(stack);
+      }
+      // append to dialog
+      const stacktraceEl = document.getElementById('stack-trace');
+      if (stacktraceEl) {
+        stacktraceEl.innerText = stack;
+      }
 
-  if (additionalLogFn) {
-    additionalLogFn(stack);
-  }
-  // append to dialog
-  const stacktraceEl = document.getElementById('stack-trace');
-  if (stacktraceEl) {
-    stacktraceEl.innerText = stack;
-  }
+      const githubIssueLink = document.getElementById('github-issue-url');
 
-  const githubIssueLink = document.getElementById('github-issue-url');
+      if (githubIssueLink) {
+        const errEscaped = _cleanHtml(origErr as string);
+        githubIssueLink.setAttribute('href', getGithubUrl(errEscaped, stack));
+      }
 
-  if (githubIssueLink) {
-    const errEscaped = _cleanHtml(origErr as string);
-    githubIssueLink.setAttribute('href', getGithubUrl(errEscaped, stack));
-  }
-
-// NOTE: there is an issue with this sometimes -> https://github.com/stacktracejs/stacktrace.js/issues/202
-}).catch(console.error);
+      // NOTE: there is an issue with this sometimes -> https://github.com/stacktracejs/stacktrace.js/issues/202
+    })
+    .catch(console.error);
 
 const _cleanHtml = (str: string): string => {
   const div = document.createElement('div');
@@ -58,7 +65,13 @@ const _cleanHtml = (str: string): string => {
   return div.textContent || div.innerText || '';
 };
 
-export const createErrorAlert = (eSvc: ElectronService, err: string = '', stackTrace: string, origErr: any) => {
+export const createErrorAlert = (
+  eSvc: ElectronService,
+  err: string = '',
+  stackTrace: string,
+  origErr: any,
+  userData?: AppDataComplete | undefined,
+) => {
   if (isWasErrorAlertCreated) {
     return;
   }
@@ -82,6 +95,12 @@ export const createErrorAlert = (eSvc: ElectronService, err: string = '', stackT
     <pre style="line-height: 1.3; font-size: 12px;">${getSimpleMeta()}</pre>
     </div>
   `;
+
+  document.body.append(errorAlert);
+  const innerWrapper = document.getElementById(
+    'error-alert-inner-wrapper',
+  ) as HTMLElement;
+
   const btnReload = document.createElement('BUTTON');
   btnReload.innerText = 'Reload App';
   btnReload.addEventListener('click', () => {
@@ -91,9 +110,30 @@ export const createErrorAlert = (eSvc: ElectronService, err: string = '', stackT
       window.location.reload();
     }
   });
-  document.body.append(errorAlert);
-  const innerWrapper = document.getElementById('error-alert-inner-wrapper') as HTMLElement;
   innerWrapper.append(btnReload);
+
+  console.log(userData);
+
+  if (userData) {
+    const btnExport = document.createElement('BUTTON');
+    btnExport.innerText = 'Export data';
+    btnExport.addEventListener('click', () => {
+      download(
+        'super-productivity-crash-user-data-export.json',
+        JSON.stringify(userData),
+      );
+    });
+    innerWrapper.append(btnExport);
+  }
+
+  const tagReport = document.createElement('A');
+  const btnReport = document.createElement('BUTTON');
+  btnReport.innerText = 'Report';
+  tagReport.append(btnReport);
+  tagReport.setAttribute('href', githubUrl);
+  tagReport.setAttribute('target', '_blank');
+  innerWrapper.append(tagReport);
+
   isWasErrorAlertCreated = true;
 
   innerWrapper.style.visibility = 'hidden';
@@ -109,16 +149,25 @@ export const createErrorAlert = (eSvc: ElectronService, err: string = '', stackT
 
 export const getSimpleMeta = (): string => {
   const n = window.navigator;
-  return `META: SP${environment.version} ${IS_ELECTRON ? 'Electron' : 'Browser'} – ${n.language} – ${n.platform} – ${n.userAgent}`;
+  return `META: SP${environment.version} ${IS_ELECTRON ? 'Electron' : 'Browser'} – ${
+    n.language
+  } – ${n.platform} – ${n.userAgent}`;
 };
 
 export const isHandledError = (err: unknown): boolean => {
-  const errStr = (typeof err === 'string')
-    ? err
-    : (typeof err === 'object' && err !== null && typeof (err as any).toString === 'function' && err.toString());
+  const errStr =
+    typeof err === 'string'
+      ? err
+      : typeof err === 'object' &&
+        err !== null &&
+        typeof (err as any).toString === 'function' &&
+        err.toString();
   // NOTE: for some unknown reason sometimes err is undefined while err.toString is not...
   // this is why we also check the string value
-  return (err && (err as any).hasOwnProperty(HANDLED_ERROR_PROP_STR)) || !!((errStr as string).match(HANDLED_ERROR_PROP_STR));
+  return (
+    (err && (err as any).hasOwnProperty(HANDLED_ERROR_PROP_STR)) ||
+    !!(errStr as string).match(HANDLED_ERROR_PROP_STR)
+  );
 };
 
 const getGithubUrl = (errEscaped: string, stackTrace: string): string => {
@@ -145,12 +194,9 @@ const getGithubIssueErrorMarkdown = (stacktrace: string): string => {
 ### Error Log (Desktop only)
 <!-- For the desktop versions, there is also an error log file in case there is no console output.
 Usually, you can find it here:
-on Linux:
-~/.config/superProductivity/log.log
---or--
-~/snap/superproductivity/current/.config/superProductivity/log.log
-on macOS: ~/Library/Logs/superProductivity/log.log
-on Windows: %USERPROFILE%\\AppData\\Roaming\\superProductivity\\log.log
+on Linux: ~/.config/superProductivity/logs/main.log
+on macOS: ~/Library/Logs/superProductivity/main.log
+on Windows: %USERPROFILE%/AppData/Roaming/superProductivity/logs/main.log
 . -->
 
 ### Console Output

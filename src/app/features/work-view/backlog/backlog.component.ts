@@ -1,6 +1,15 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  EventEmitter,
+  Input,
+  Output,
+} from '@angular/core';
 import { TaskService } from '../../../features/tasks/task.service';
-import { TaskWithReminderData, TaskWithSubTasks } from '../../../features/tasks/task.model';
+import {
+  TaskWithReminderData,
+  TaskWithSubTasks,
+} from '../../../features/tasks/task.model';
 import { standardListAnimation } from '../../../ui/animations/standard-list.ani';
 import { T } from '../../../t.const';
 
@@ -9,7 +18,7 @@ import { T } from '../../../t.const';
   templateUrl: './backlog.component.html',
   styleUrls: ['./backlog.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  animations: [standardListAnimation]
+  animations: [standardListAnimation],
 })
 export class BacklogComponent {
   @Input() backlogTasks: TaskWithSubTasks[] = [];
@@ -26,10 +35,7 @@ export class BacklogComponent {
   // );
   // backlogTasks$: Observable<TaskWithSubTasks[]> = this.taskService.backlogTasks$;
 
-  constructor(
-    public taskService: TaskService,
-  ) {
-  }
+  constructor(public taskService: TaskService) {}
 
   trackByFn(i: number, task: TaskWithReminderData) {
     return task.id;
@@ -39,7 +45,6 @@ export class BacklogComponent {
     if (!task.reminderId) {
       throw new Error('Task without reminder');
     }
-    this.taskService.removeReminder(task.id, task.reminderId);
+    this.taskService.unScheduleTask(task.id, task.reminderId);
   }
-
 }

@@ -4,7 +4,7 @@ import { catchError, concatMap, filter, map, switchMap, tap } from 'rxjs/operato
 import { Actions, Effect, ofType } from '@ngrx/effects';
 import {
   GlobalConfigActionTypes,
-  UpdateGlobalConfigSection
+  UpdateGlobalConfigSection,
 } from '../../../../features/config/store/global-config.actions';
 import { SyncConfig } from '../../../../features/config/global-config.model';
 import { SnackService } from '../../../../core/snack/snack.service';
@@ -16,47 +16,38 @@ import { DEFAULT_SYNC_FILE_NAME } from '../google.const';
 import { SyncProvider } from '../../sync-provider.model';
 import { HANDLED_ERROR_PROP_STR } from '../../../../app.constants';
 
-// this._globalConfigService.cfg$.pipe(
-//   map(syncCfg => syncCfg.sync),
-//   tap(console.log),
-//   distinctUntilChanged((a: SyncConfig, b: SyncConfig) => {
-//     console.log(a.googleDriveSync.authCode, b.googleDriveSync.authCode);
-//     return a.googleDriveSync.authCode === b.googleDriveSync.authCode;
-//   }),
-// ).subscribe((syncCfg: SyncConfig) => {
-//   console.log('BEFORE', syncCfg);
-//   if (syncCfg.googleDriveSync.authCode) {
-//     console.log('I am here!');
-//     this._globalConfigService.updateSection('sync', {
-//       ...syncCfg,
-//       googleDriveSync: {
-//         ...syncCfg.googleDriveSync,
-//         authCode: null,
-//       }
-//     });  this._googleApiService.getTokenFromAuthCode(syncCfg.googleDriveSync.authCode).then(console.log);
-//   }
-// });
-
 @Injectable()
 export class GoogleDriveSyncEffects {
   @Effect() createSyncFile$: any = this._actions$.pipe(
-    ofType(
-      GlobalConfigActionTypes.UpdateGlobalConfigSection,
+    ofType(GlobalConfigActionTypes.UpdateGlobalConfigSection),
+    filter(
+      ({ payload }: UpdateGlobalConfigSection): boolean => payload.sectionKey === 'sync',
     ),
-    filter(({payload}: UpdateGlobalConfigSection): boolean => payload.sectionKey === 'sync'),
-    map(({payload}) => payload.sectionCfg as SyncConfig),
-    switchMap((syncConfig: SyncConfig): Observable<{
-      syncFileName: string;
-      _backupDocId: string;
-      _syncFileNameForBackupDocId: string;
-      sync: SyncConfig;
-    } | never> => {
-      const isChanged = (syncConfig.googleDriveSync.syncFileName !== syncConfig.googleDriveSync._syncFileNameForBackupDocId);
-      if (syncConfig.syncProvider === SyncProvider.GoogleDrive
-        && (isChanged || !syncConfig.googleDriveSync._backupDocId)
-        && syncConfig.googleDriveSync.syncFileName.length > 0
-      ) {
-        const newFileName = syncConfig.googleDriveSync.syncFileName || DEFAULT_SYNC_FILE_NAME;
+    map(({ payload }) => payload.sectionCfg as SyncConfig),
+    filter((syncConfig: SyncConfig) => {
+      return (
+        syncConfig.isEnabled &&
+        syncConfig.syncProvider === SyncProvider.GoogleDrive &&
+        (syncConfig.googleDriveSync.syncFileName !==
+          syncConfig.googleDriveSync._syncFileNameForBackupDocId ||
+          !syncConfig.googleDriveSync._backupDocId) &&
+        syncConfig.googleDriveSync.syncFileName.length > 0
+      );
+    }),
+    switchMap(
+      (
+        syncConfig: SyncConfig,
+      ): Observable<
+        | {
+            syncFileName: string;
+            _backupDocId: string;
+            _syncFileNameForBackupDocId: string;
+            sync: SyncConfig;
+          }
+        | never
+      > => {
+        const newFileName =
+          syncConfig.googleDriveSync.syncFileName || DEFAULT_SYNC_FILE_NAME;
         return this._googleApiService.findFile$(newFileName).pipe(
           concatMap((res: any): any => {
             const filesFound = res.items;
@@ -64,7 +55,7 @@ export class GoogleDriveSyncEffects {
               this._snackService.open({
                 type: 'ERROR',
                 msg: T.F.GOOGLE.S.MULTIPLE_SYNC_FILES_WITH_SAME_NAME,
-                translateParams: {newFileName},
+                translateParams: { newFileName },
               });
               return EMPTY;
             } else if (!filesFound || filesFound.length === 0) {
@@ -73,16 +64,16 @@ export class GoogleDriveSyncEffects {
                   return !isSave
                     ? EMPTY
                     : this._googleApiService.saveFile$('', {
-                      title: newFileName,
-                      editable: true
-                    });
+                        title: newFileName,
+                        editable: true,
+                      });
                 }),
                 map((res2: any) => ({
                   syncFileName: res2.title,
                   _syncFileNameForBackupDocId: res2.title,
                   _backupDocId: res2.id,
                   sync: syncConfig,
-                }))
+                })),
               );
             } else if (filesFound.length === 1) {
               return this._confirmUsingExistingFileDialog$(newFileName).pipe(
@@ -90,13 +81,13 @@ export class GoogleDriveSyncEffects {
                   const fileToUpdate = filesFound[0];
                   return isConfirmUseExisting
                     ? of({
-                      syncFileName: newFileName,
-                      _syncFileNameForBackupDocId: newFileName,
-                      _backupDocId: fileToUpdate.id,
-                      sync: syncConfig,
-                    })
+                        syncFileName: newFileName,
+                        _syncFileNameForBackupDocId: newFileName,
+                        _backupDocId: fileToUpdate.id,
+                        sync: syncConfig,
+                      })
                     : EMPTY;
-                })
+                }),
               );
             }
             return EMPTY;
@@ -106,37 +97,51 @@ export class GoogleDriveSyncEffects {
             this._snackService.open({
               type: 'ERROR',
               msg: T.F.GOOGLE.S.SYNC_FILE_CREATION_ERROR,
-              translateParams: {err: this._getApiErrorString(err)},
+              translateParams: { err: this._getApiErrorString(err) },
             });
-            return throwError({[HANDLED_ERROR_PROP_STR]: 'GD File creation: ' + this._getApiErrorString(err)});
-          })
+            return throwError({
+              [HANDLED_ERROR_PROP_STR]:
+                'GD File creation: ' + this._getApiErrorString(err),
+            });
+          }),
         );
-      } else {
-        return EMPTY;
-      }
-    }),
-    tap((): any => setTimeout(() => this._snackService.open({
-        type: 'SUCCESS',
-        msg: T.F.GOOGLE.S.UPDATED_SYNC_FILE_NAME
-      }), 200)
+      },
     ),
-    map(({syncFileName, _backupDocId, _syncFileNameForBackupDocId, sync}: {
-      syncFileName: string;
-      _backupDocId: string;
-      _syncFileNameForBackupDocId: string;
-      sync: SyncConfig;
-    }) => new UpdateGlobalConfigSection({
-      sectionKey: 'sync',
-      sectionCfg: ({
-        ...sync,
-        googleDriveSync: {
-          ...sync.googleDriveSync,
-          _backupDocId,
-          _syncFileNameForBackupDocId,
-          syncFileName,
-        }
-      } as SyncConfig)
-    })),
+    tap((): any =>
+      setTimeout(
+        () =>
+          this._snackService.open({
+            type: 'SUCCESS',
+            msg: T.F.GOOGLE.S.UPDATED_SYNC_FILE_NAME,
+          }),
+        200,
+      ),
+    ),
+    map(
+      ({
+        syncFileName,
+        _backupDocId,
+        _syncFileNameForBackupDocId,
+        sync,
+      }: {
+        syncFileName: string;
+        _backupDocId: string;
+        _syncFileNameForBackupDocId: string;
+        sync: SyncConfig;
+      }) =>
+        new UpdateGlobalConfigSection({
+          sectionKey: 'sync',
+          sectionCfg: {
+            ...sync,
+            googleDriveSync: {
+              ...sync.googleDriveSync,
+              _backupDocId,
+              _syncFileNameForBackupDocId,
+              syncFileName,
+            },
+          } as SyncConfig,
+        }),
+    ),
   );
 
   constructor(
@@ -144,28 +149,30 @@ export class GoogleDriveSyncEffects {
     private _snackService: SnackService,
     private _googleApiService: GoogleApiService,
     private _matDialog: MatDialog,
-  ) {
-
-  }
+  ) {}
 
   private _confirmSaveNewFile$(fileName: string): Observable<boolean> {
-    return this._matDialog.open(DialogConfirmComponent, {
-      restoreFocus: true,
-      data: {
-        message: T.F.GOOGLE.DIALOG.CREATE_SYNC_FILE,
-        translateParams: {fileName},
-      }
-    }).afterClosed();
+    return this._matDialog
+      .open(DialogConfirmComponent, {
+        restoreFocus: true,
+        data: {
+          message: T.F.GOOGLE.DIALOG.CREATE_SYNC_FILE,
+          translateParams: { fileName },
+        },
+      })
+      .afterClosed();
   }
 
   private _confirmUsingExistingFileDialog$(fileName: string): Observable<boolean> {
-    return this._matDialog.open(DialogConfirmComponent, {
-      restoreFocus: true,
-      data: {
-        message: T.F.GOOGLE.DIALOG.USE_EXISTING_SYNC_FILE,
-        translateParams: {fileName},
-      }
-    }).afterClosed();
+    return this._matDialog
+      .open(DialogConfirmComponent, {
+        restoreFocus: true,
+        data: {
+          message: T.F.GOOGLE.DIALOG.USE_EXISTING_SYNC_FILE,
+          translateParams: { fileName },
+        },
+      })
+      .afterClosed();
   }
 
   private _getApiErrorString(err: any): string {

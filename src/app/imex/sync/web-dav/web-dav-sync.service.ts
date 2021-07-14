@@ -11,8 +11,9 @@ import { WebDavConfig } from '../../../features/config/global-config.model';
 import { GlobalConfigService } from '../../../features/config/global-config.service';
 import { GlobalProgressBarService } from '../../../core-ui/global-progress-bar/global-progress-bar.service';
 import { T } from '../../../t.const';
+import { WebDavHeadResponse } from './web-dav.model';
 
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class WebDavSyncService implements SyncProviderServiceInterface {
   id: SyncProvider = SyncProvider.WebDAV;
 
@@ -22,7 +23,7 @@ export class WebDavSyncService implements SyncProviderServiceInterface {
   );
 
   private _cfg$: Observable<WebDavConfig> = this._globalConfigService.cfg$.pipe(
-    map((cfg) => cfg?.sync.webDav)
+    map((cfg) => cfg?.sync.webDav),
   );
 
   //
@@ -31,18 +32,20 @@ export class WebDavSyncService implements SyncProviderServiceInterface {
     private _dataInitService: DataInitService,
     private _globalConfigService: GlobalConfigService,
     private _globalProgressBarService: GlobalProgressBarService,
-  ) {
-  }
+  ) {}
 
-  async getRevAndLastClientUpdate(localRev: string): Promise<{ rev: string; clientUpdate: number } | SyncGetRevResult> {
+  async getRevAndLastClientUpdate(
+    localRev: string,
+  ): Promise<{ rev: string; clientUpdate: number } | SyncGetRevResult> {
     const cfg = await this._cfg$.pipe(first()).toPromise();
 
     try {
-      const r = await this._webDavApiService.getMetaData('/' + cfg.syncFilePath);
-      const d = new Date(r.lastmod);
+      const meta = await this._webDavApiService.getMetaData('/' + cfg.syncFilePath);
+      // @ts-ignore
+      const d = new Date(meta['last-modified']);
       return {
         clientUpdate: d.getTime(),
-        rev: r.etag,
+        rev: this._getRevFromMeta(meta),
       };
     } catch (e) {
       const isAxiosError = !!(e && e.response && e.response.status);
@@ -58,7 +61,9 @@ export class WebDavSyncService implements SyncProviderServiceInterface {
     }
   }
 
-  async downloadAppData(localRev: string): Promise<{ rev: string; data: AppDataComplete }> {
+  async downloadAppData(
+    localRev: string,
+  ): Promise<{ rev: string; data: AppDataComplete }> {
     this._globalProgressBarService.countUp(T.GPB.WEB_DAV_DOWNLOAD);
     const cfg = await this._cfg$.pipe(first()).toPromise();
     try {
@@ -69,7 +74,7 @@ export class WebDavSyncService implements SyncProviderServiceInterface {
       const meta = await this._webDavApiService.getMetaData('/' + cfg.syncFilePath);
       this._globalProgressBarService.countDown();
       return {
-        rev: meta.etag,
+        rev: this._getRevFromMeta(meta),
         data: r,
       };
     } catch (e) {
@@ -78,21 +83,38 @@ export class WebDavSyncService implements SyncProviderServiceInterface {
     }
   }
 
-  async uploadAppData(data: AppDataComplete, localRev: string, isForceOverwrite: boolean = false): Promise<string | Error> {
+  async uploadAppData(
+    data: AppDataComplete,
+    localRev: string,
+    isForceOverwrite: boolean = false,
+  ): Promise<string | Error> {
     this._globalProgressBarService.countUp(T.GPB.WEB_DAV_UPLOAD);
     try {
-      const r = await this._webDavApiService.upload({
+      await this._webDavApiService.upload({
         data,
         localRev,
-        isForceOverwrite
+        isForceOverwrite,
       });
-      console.log(r);
+
+      const cfg = await this._cfg$.pipe(first()).toPromise();
+      const meta = await this._webDavApiService.getMetaData('/' + cfg.syncFilePath);
       this._globalProgressBarService.countDown();
-      return r.headers.etag;
+      return this._getRevFromMeta(meta);
     } catch (e) {
       console.error(e);
       this._globalProgressBarService.countDown();
       return e;
     }
+  }
+
+  private _getRevFromMeta(meta: WebDavHeadResponse): string {
+    if (typeof meta?.etag !== 'string') {
+      console.warn('No etag for WebDAV');
+    }
+    const rev = meta.etag || meta['oc-etag'] || meta['last-modified'];
+    if (!rev) {
+      throw new Error('Not able to get rev for WebDAV');
+    }
+    return rev;
   }
 }

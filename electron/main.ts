@@ -1,8 +1,16 @@
 'use strict';
-import { App, app, BrowserWindow, globalShortcut, ipcMain, powerMonitor, protocol } from 'electron';
+import {
+  App,
+  app,
+  BrowserWindow,
+  globalShortcut,
+  ipcMain,
+  powerMonitor,
+  protocol,
+} from 'electron';
 import * as electronDl from 'electron-dl';
 
-import { info } from 'electron-log';
+import { info, log } from 'electron-log';
 import { CONFIG } from './CONFIG';
 
 import { initIndicator } from './indicator';
@@ -10,7 +18,7 @@ import { createWindow } from './main-window';
 
 import { sendJiraRequest, setupRequestHeadersForImages } from './jira';
 import { getGitLog } from './git-log';
-import { errorHandler } from './error-handler';
+import { errorHandlerWithFrontendInform } from './error-handler-with-frontend-inform';
 import { initDebug } from './debug';
 import { IPC } from './ipc-events.const';
 import { initBackupAdapter } from './backup';
@@ -23,7 +31,7 @@ const ICONS_FOLDER = __dirname + '/assets/icons/';
 const IS_MAC = process.platform === 'darwin';
 const IS_LINUX = process.platform === 'linux';
 const DESKTOP_ENV = process.env.DESKTOP_SESSION;
-const IS_GNOME = (DESKTOP_ENV === 'gnome' || DESKTOP_ENV === 'gnome-xorg');
+const IS_GNOME = DESKTOP_ENV === 'gnome' || DESKTOP_ENV === 'gnome-xorg';
 const IS_DEV = process.env.NODE_ENV === 'DEV';
 
 let isShowDevTools: boolean = IS_DEV;
@@ -32,30 +40,30 @@ let isDisableTray = false;
 let forceDarkTray = false;
 
 if (IS_DEV) {
-  console.log('Starting in DEV Mode!!!');
+  log('Starting in DEV Mode!!!');
 }
 
 // NOTE: needs to be executed before everything else
 process.argv.forEach((val) => {
   if (val && val.includes('--disable-tray')) {
     isDisableTray = true;
-    console.log('Disable tray icon');
+    log('Disable tray icon');
   }
 
   if (val && val.includes('--force-dark-tray')) {
     forceDarkTray = true;
-    console.log('Force dark mode for tray icon');
+    log('Force dark mode for tray icon');
   }
 
   if (val && val.includes('--user-data-dir=')) {
     const customUserDir = val.replace('--user-data-dir=', '').trim();
-    console.log('Using custom directory for user data', customUserDir);
+    log('Using custom directory for user data', customUserDir);
     app.setPath('userData', customUserDir);
   }
 
   if (val && val.includes('--custom-url=')) {
     customUrl = val.replace('--custom-url=', '').trim();
-    console.log('Using custom url', customUrl);
+    log('Using custom url', customUrl);
   }
 
   if (val && val.includes('--dev-tools')) {
@@ -72,11 +80,11 @@ const appIN: MyApp = app;
 // NOTE: to get rid of the warning => https://github.com/electron/electron/issues/18397
 appIN.allowRendererProcessReuse = true;
 
-initDebug({showDevTools: isShowDevTools}, IS_DEV);
+initDebug({ showDevTools: isShowDevTools }, IS_DEV);
 
 // NOTE: opening the folder crashes the mas build
 if (!IS_MAC) {
-  electronDl({openFolderWhenDone: true});
+  electronDl({ openFolderWhenDone: true });
 }
 let mainWin: BrowserWindow;
 // keep app active to keep time tracking running
@@ -102,8 +110,8 @@ if (!IS_MAC) {
 }
 
 // Allow invalid certificates for jira requests
-appIN.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
-  console.log(error);
+appIN.on('certificate-error', (event, webContents, url, err, certificate, callback) => {
+  log(err);
   event.preventDefault();
   callback(true);
 });
@@ -133,7 +141,9 @@ appIN.on('ready', () => {
   const sendIdleMsgIfOverMin = (idleTime) => {
     // sometimes when starting a second instance we get here although we don't want to
     if (!mainWin) {
-      info('special case occurred when trackTimeFn is called even though, this is a second instance of the app');
+      info(
+        'special case occurred when trackTimeFn is called even though, this is a second instance of the app',
+      );
       return;
     }
 
@@ -184,7 +194,7 @@ appIN.on('will-quit', () => {
 });
 
 appIN.on('window-all-closed', (event) => {
-  console.log('Quit after all windows being closed');
+  log('Quit after all windows being closed');
   // if (!IS_MAC) {
   app.quit();
   // }
@@ -202,7 +212,7 @@ appIN.on('window-all-closed', (event) => {
 // });
 //
 // autoUpdater.on('update-downloaded', (ev, info) => {
-//  console.log(ev);
+//  log(ev);
 //  // Wait 5 seconds, then quit and install
 //  // In your application, you don't need to wait 5 seconds.
 //  // You could call autoUpdater.quitAndInstall(); immediately
@@ -225,13 +235,23 @@ ipcMain.on(IPC.LOCK_SCREEN, () => {
   try {
     lockscreen();
   } catch (e) {
-    errorHandler(e);
+    errorHandlerWithFrontendInform(e);
   }
 });
 
-ipcMain.on(IPC.SET_PROGRESS_BAR, (ev, {progress, mode}) => {
+ipcMain.on(IPC.SET_PROGRESS_BAR, (ev, { progress, mode }) => {
   if (mainWin) {
-    mainWin.setProgressBar(Math.min(Math.max(progress, 0), 1), {mode});
+    mainWin.setProgressBar(Math.min(Math.max(progress, 0), 1), { mode });
+  }
+});
+
+ipcMain.on(IPC.FLASH_PROGRESS_BAR, (ev) => {
+  if (mainWin) {
+    mainWin.flashFrame(true);
+
+    mainWin.once('focus', () => {
+      mainWin.flashFrame(false);
+    });
   }
 });
 
@@ -239,9 +259,12 @@ ipcMain.on(IPC.REGISTER_GLOBAL_SHORTCUTS_EVENT, (ev, cfg) => {
   registerShowAppShortCuts(cfg);
 });
 
-ipcMain.on(IPC.JIRA_SETUP_IMG_HEADERS, (ev, {jiraCfg, wonkyCookie}: { jiraCfg: JiraCfg; wonkyCookie?: string }) => {
-  setupRequestHeadersForImages(jiraCfg, wonkyCookie);
-});
+ipcMain.on(
+  IPC.JIRA_SETUP_IMG_HEADERS,
+  (ev, { jiraCfg, wonkyCookie }: { jiraCfg: JiraCfg; wonkyCookie?: string }) => {
+    setupRequestHeadersForImages(jiraCfg, wonkyCookie);
+  },
+);
 
 ipcMain.on(IPC.JIRA_MAKE_REQUEST_EVENT, (ev, request) => {
   sendJiraRequest(request);
@@ -257,16 +280,18 @@ ipcMain.on(IPC.SHOW_OR_FOCUS, () => {
 
 // HELPER FUNCTIONS
 // ----------------
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function createIndicator() {
   initIndicator({
     app,
     showApp,
     quitApp,
     ICONS_FOLDER,
-    forceDarkTray
+    forceDarkTray,
   });
 }
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function createMainWin() {
   mainWin = createWindow({
     app,
@@ -278,6 +303,7 @@ function createMainWin() {
   });
 }
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function registerShowAppShortCuts(cfg: KeyboardConfig) {
   // unregister all previous
   globalShortcut.unregisterAll();
@@ -290,7 +316,7 @@ function registerShowAppShortCuts(cfg: KeyboardConfig) {
 
   if (cfg) {
     Object.keys(cfg)
-      .filter((key: (keyof KeyboardConfig)) => GLOBAL_KEY_CFG_KEYS.includes(key))
+      .filter((key: keyof KeyboardConfig) => GLOBAL_KEY_CFG_KEYS.includes(key))
       .forEach((key) => {
         let actionFn: () => void;
         const shortcut = cfg[key];
@@ -336,30 +362,38 @@ function registerShowAppShortCuts(cfg: KeyboardConfig) {
         if (shortcut && shortcut.length > 0) {
           const ret = globalShortcut.register(shortcut, actionFn) as unknown;
           if (!ret) {
-            errorHandler('Global Shortcut registration failed: ' + shortcut, shortcut);
+            errorHandlerWithFrontendInform(
+              'Global Shortcut registration failed: ' + shortcut,
+              shortcut,
+            );
           }
         }
       });
   }
 }
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function showApp() {
   showOrFocus(mainWin);
 }
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function quitApp() {
   // tslint:disable-next-line
   appIN.isQuiting = true;
   appIN.quit();
 }
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function showOrFocus(passedWin) {
   // default to main winpc
   const win = passedWin || mainWin;
 
   // sometimes when starting a second instance we get here although we don't want to
   if (!win) {
-    info('special case occurred when showOrFocus is called even though, this is a second instance of the app');
+    info(
+      'special case occurred when showOrFocus is called even though, this is a second instance of the app',
+    );
     return;
   }
 
@@ -375,12 +409,13 @@ function showOrFocus(passedWin) {
   }, 60);
 }
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function exec(ev, command) {
-  console.log('running command ' + command);
+  log('running command ' + command);
   const execIN = require('child_process').exec;
-  execIN(command, (error) => {
-    if (error) {
-      errorHandler(error);
+  execIN(command, (err) => {
+    if (err) {
+      errorHandlerWithFrontendInform(err);
     }
   });
 }
@@ -389,7 +424,7 @@ function exec(ev, command) {
 // @see: https://github.com/electron/electron/issues/5708
 process.on('exit', () => {
   setTimeout(() => {
-    console.log('Quit after process exit');
+    log('Quit after process exit');
     app.quit();
   }, 100);
 });

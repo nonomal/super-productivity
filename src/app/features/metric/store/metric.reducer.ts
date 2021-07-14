@@ -5,7 +5,7 @@ import {
   MetricActions,
   MetricActionTypes,
   UpdateMetric,
-  UpsertMetric
+  UpsertMetric,
 } from './metric.actions';
 import { Metric, MetricState } from '../metric.model';
 import { loadAllData } from '../../../root-store/meta/load-all-data.action';
@@ -19,15 +19,14 @@ export const initialMetricState: MetricState = metricAdapter.getInitialState({
   // additional entity state properties
 });
 
-export function metricReducer(
+export const metricReducer = (
   state: MetricState = initialMetricState,
-  action: MetricActions
-): MetricState {
-
+  action: MetricActions,
+): MetricState => {
   // TODO fix this hackyness once we use the new syntax everywhere
   if ((action.type as string) === loadAllData.type) {
-    const {appDataComplete}: { appDataComplete: AppDataComplete } = action as any;
-    return (appDataComplete.metric?.ids)
+    const { appDataComplete }: { appDataComplete: AppDataComplete } = action as any;
+    return appDataComplete.metric?.ids
       ? appDataComplete.metric
       : migrateMetricState(state);
   }
@@ -53,6 +52,4 @@ export function metricReducer(
       return state;
     }
   }
-}
-
-
+};

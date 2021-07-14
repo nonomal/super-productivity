@@ -17,6 +17,23 @@ export enum TaskAdditionalInfoTargetPanel {
 
 export type DropListModelSource = 'UNDONE' | 'DONE' | 'BACKLOG';
 
+// NOTE: do not change these, as they are used inside task repeat model directly
+// (new can be added though)
+export enum TaskReminderOptionId {
+  DoNotRemind = 'DoNotRemind',
+  AtStart = 'AtStart',
+  m5 = 'm5',
+  m10 = 'm10',
+  m15 = 'm15',
+  m30 = 'm30',
+  h1 = 'h1',
+}
+
+export interface TaskReminderOption {
+  value: TaskReminderOptionId;
+  label: string;
+}
+
 export interface TimeSpentOnDayCopy {
   [key: string]: number;
 }
@@ -52,6 +69,8 @@ export interface TaskCopy extends IssueFieldsForTask {
   created: number;
   isDone: boolean;
   doneOn: number | null;
+  plannedAt: number | null;
+  // remindCfg: TaskReminderOptionId;
 
   notes: string;
 
@@ -83,8 +102,22 @@ export interface TaskWithReminderData extends Task {
   readonly parentData?: Task;
 }
 
+export interface TaskWithReminder extends Task {
+  reminderId: string;
+  plannedAt: number;
+}
+
+export interface TaskPlanned extends Task {
+  plannedAt: number;
+}
+
+export interface TaskWithoutReminder extends Task {
+  reminderId: null;
+  plannedAt: null;
+}
+
 export interface TaskWithSubTasks extends Task {
-  readonly subTasks?: Task[];
+  readonly subTasks: Task[];
 }
 
 export const DEFAULT_TASK: Task = {
@@ -103,6 +136,7 @@ export const DEFAULT_TASK: Task = {
   reminderId: null,
   created: Date.now(),
   repeatCfgId: null,
+  plannedAt: null,
 
   _showSubTasksMode: ShowSubTasksMode.Show,
 

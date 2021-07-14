@@ -8,8 +8,9 @@
 // }
 // export const IS_TOUCH = isTouch();
 
-export function isTouchOnly(): boolean {
-  return window.matchMedia('(pointer: coarse)').matches;
-}
+import { IS_ANDROID_WEB_VIEW } from './is-android-web-view';
 
-export const IS_TOUCH_ONLY = isTouchOnly();
+export const isTouchOnly = (): boolean => window.matchMedia('(pointer: coarse)').matches;
+
+// NOTE: not required to add IS_ANDROID_WEB_VIEW, but we make extra sure the value is set
+export const IS_TOUCH_ONLY = isTouchOnly() || IS_ANDROID_WEB_VIEW;

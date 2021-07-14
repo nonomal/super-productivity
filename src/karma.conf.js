@@ -2,6 +2,10 @@
 // https://karma-runner.github.io/1.0/config/configuration-file.html
 
 module.exports = function (config) {
+  // NOTE: necessary to fix some of the unit tests with a timezone in them
+  // NOTE2: won't work for wallaby, but that's maybe ok for now
+  process.env.TZ = 'Europe/Berlin';
+
   config.set({
     basePath: '',
     frameworks: ['jasmine', '@angular-devkit/build-angular'],
@@ -10,15 +14,15 @@ module.exports = function (config) {
       require('karma-chrome-launcher'),
       require('karma-jasmine-html-reporter'),
       require('karma-coverage-istanbul-reporter'),
-      require('@angular-devkit/build-angular/plugins/karma')
+      require('@angular-devkit/build-angular/plugins/karma'),
     ],
     client: {
-      clearContext: false // leave Jasmine Spec Runner output visible in browser
+      clearContext: false, // leave Jasmine Spec Runner output visible in browser
     },
     coverageIstanbulReporter: {
       dir: require('path').join(__dirname, '../coverage'),
       reports: ['html', 'lcovonly'],
-      fixWebpackSourcePaths: true
+      fixWebpackSourcePaths: true,
     },
     reporters: ['progress', 'kjhtml'],
     port: 9876,
@@ -28,7 +32,7 @@ module.exports = function (config) {
     browsers: ['ChromeHeadless'],
     singleRun: false,
     customLaunchers: {
-      'ChromeHeadless': {
+      ChromeHeadless: {
         base: 'Chrome',
         flags: [
           // We must disable the Chrome sandbox when running Chrome inside Docker
@@ -48,8 +52,8 @@ module.exports = function (config) {
           '--remote-debugging-port=9222',
           '--disable-web-security',
         ],
-        debug: true
-      }
+        debug: true,
+      },
     },
     browserNoActivityTimeout: 120000,
   });

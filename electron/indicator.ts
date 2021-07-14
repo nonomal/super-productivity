@@ -1,22 +1,20 @@
 import { App, ipcMain, Menu, nativeTheme, Tray } from 'electron';
-// const dbus = require('./dbus');
 import { IPC } from './ipc-events.const';
 import { getSettings } from './get-settings';
 import { getWin } from './main-window';
 
-let tray;
+let tray: Tray;
 let isIndicatorRunning = false;
 let DIR: string;
-let shouldUseDarkColors : boolean;
-
-const isGnomeShellExtensionRunning = false;
+let shouldUseDarkColors: boolean;
+const IS_MAC = process.platform === 'darwin';
 
 export const initIndicator = ({
   showApp,
   quitApp,
   app,
   ICONS_FOLDER,
-  forceDarkTray
+  forceDarkTray,
 }: {
   showApp: () => void;
   quitApp: () => void;
@@ -30,20 +28,19 @@ export const initIndicator = ({
   initAppListeners(app);
   initListeners();
 
-  const suf = shouldUseDarkColors
-    ? '-d.png'
-    : '-l.png';
+  const suf = shouldUseDarkColors ? '-d.png' : '-l.png';
   tray = new Tray(DIR + `stopped${suf}`);
   tray.setContextMenu(createContextMenu(showApp, quitApp));
+  tray.setToolTip('XXXXXXXXXXXXXXXXXXXx');
 
   tray.on('click', () => {
     showApp();
   });
   isIndicatorRunning = true;
   return tray;
-  // }
 };
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function initAppListeners(app) {
   if (tray) {
     app.on('before-quit', () => {
@@ -54,11 +51,10 @@ function initAppListeners(app) {
   }
 }
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function initListeners() {
-  ipcMain.on(IPC.SET_PROGRESS_BAR, (ev, {progress}) => {
-    const suf = shouldUseDarkColors
-      ? '-d'
-      : '-l';
+  ipcMain.on(IPC.SET_PROGRESS_BAR, (ev, { progress }) => {
+    const suf = shouldUseDarkColors ? '-d' : '-l';
     if (typeof progress === 'number' && progress > 0 && isFinite(progress)) {
       const f = Math.min(Math.round(progress * 15), 15);
       const t = DIR + `running-anim${suf}/${f || 0}.png`;
@@ -75,20 +71,24 @@ function initListeners() {
     getSettings(mainWin, (settings) => {
       const isTrayShowCurrentTask = settings.misc.isTrayShowCurrentTask;
 
-      let msg = '';
-      if (isTrayShowCurrentTask && currentTask) {
-        msg = createIndicatorStr(currentTask);
-      }
+      const msg =
+        isTrayShowCurrentTask && currentTask ? createIndicatorStr(currentTask) : '';
 
       if (tray) {
         // tray handling
         if (currentTask && currentTask.title) {
           tray.setTitle(msg);
+          if (!IS_MAC) {
+            // NOTE apparently this has no effect for gnome
+            tray.setToolTip(msg);
+          }
         } else {
           tray.setTitle('');
-          const suf = shouldUseDarkColors
-            ? '-d.png'
-            : '-l.png';
+          if (!IS_MAC) {
+            // NOTE apparently this has no effect for gnome
+            tray.setToolTip(msg);
+          }
+          const suf = shouldUseDarkColors ? '-d.png' : '-l.png';
           setTrayIcon(tray, DIR + `stopped${suf}`);
         }
       }
@@ -105,6 +105,7 @@ function initListeners() {
   // });
 }
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function createIndicatorStr(task): string {
   if (task && task.title) {
     let title = task.title;
@@ -128,24 +129,28 @@ function createIndicatorStr(task): string {
     // msg = title + ' | ' + timeStr + 'm ';
     // return msg;
   }
+
+  // NOTE: we need to make sure that this is always a string
+  return '';
 }
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function createContextMenu(showApp, quitApp) {
   return Menu.buildFromTemplate([
     {
-      label: 'Show App', click: showApp
+      label: 'Show App',
+      click: showApp,
     },
     {
-      label: 'Quit', click: quitApp
-    }
+      label: 'Quit',
+      click: quitApp,
+    },
   ]);
 }
 
-export const isRunning = () => {
-  return isIndicatorRunning || isGnomeShellExtensionRunning;
-};
-
 let curIco: string;
+
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function setTrayIcon(tr: Tray, icoPath: string) {
   if (icoPath !== curIco) {
     curIco = icoPath;

@@ -6,9 +6,7 @@ export const createFromDrop = (ev: DragEvent): null | DropPasteInput => {
     throw new Error('No drop data');
   }
   const text = ev.dataTransfer.getData('text');
-  return text
-    ? (_createTextBookmark(text))
-    : (_createFileBookmark(ev.dataTransfer));
+  return text ? _createTextBookmark(text) : _createFileBookmark(ev.dataTransfer);
 };
 
 export const createFromPaste = (ev: ClipboardEvent): null | DropPasteInput => {
@@ -22,7 +20,7 @@ export const createFromPaste = (ev: ClipboardEvent): null | DropPasteInput => {
   return null;
 };
 
-function _createTextBookmark(text: string): null | DropPasteInput {
+const _createTextBookmark = (text: string): null | DropPasteInput => {
   if (text) {
     if (text.match(/\n/)) {
       // addItem({
@@ -45,9 +43,9 @@ function _createTextBookmark(text: string): null | DropPasteInput {
     }
   }
   return null;
-}
+};
 
-function _createFileBookmark(dataTransfer: DataTransfer): null | DropPasteInput {
+const _createFileBookmark = (dataTransfer: DataTransfer): null | DropPasteInput => {
   const path = dataTransfer.files[0] && dataTransfer.files[0].path;
   if (path) {
     return {
@@ -58,9 +56,9 @@ function _createFileBookmark(dataTransfer: DataTransfer): null | DropPasteInput 
     };
   }
   return null;
-}
+};
 
-function _baseName(passedStr: string) {
+const _baseName = (passedStr: string) => {
   const str = passedStr.trim();
   let base;
   if (str[str.length - 1] === '/') {
@@ -74,4 +72,4 @@ function _baseName(passedStr: string) {
     base = base.substring(0, base.lastIndexOf('.'));
   }
   return base;
-}
+};

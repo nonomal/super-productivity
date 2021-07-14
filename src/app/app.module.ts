@@ -1,4 +1,8 @@
-import { BrowserModule, HAMMER_GESTURE_CONFIG, HammerModule } from '@angular/platform-browser';
+import {
+  BrowserModule,
+  HAMMER_GESTURE_CONFIG,
+  HammerModule,
+} from '@angular/platform-browser';
 import { ErrorHandler, NgModule } from '@angular/core';
 import { AppComponent } from './app.component';
 import { ServiceWorkerModule } from '@angular/service-worker';
@@ -40,16 +44,14 @@ import { undoTaskDeleteMetaReducer } from './root-store/meta/undo-task-delete.me
 import { InitialDialogModule } from './features/initial-dialog/initial-dialog.module';
 import { actionLoggerReducer } from './root-store/meta/action-logger.reducer';
 import { SyncModule } from './imex/sync/sync.module';
+import { SearchBarModule } from './features/search-bar/search-bar.module';
 
 // NOTE: export required for aot to work
-export function createTranslateLoader(http: HttpClient) {
-  return new TranslateHttpLoader(http, './assets/i18n/', '.json');
-}
+export const createTranslateLoader = (http: HttpClient) =>
+  new TranslateHttpLoader(http, './assets/i18n/', '.json');
 
 @NgModule({
-  declarations: [
-    AppComponent,
-  ],
+  declarations: [AppComponent],
   imports: [
     // Those features need to be included first for store not to mess up, probably because we use it initially at many places
     ConfigModule,
@@ -73,19 +75,19 @@ export function createTranslateLoader(http: HttpClient) {
     SyncModule,
     InitialDialogModule,
     MaterialCssVarsModule.forRoot(),
+    SearchBarModule,
 
     // External
     BrowserModule,
     BrowserAnimationsModule,
     HttpClientModule,
     HammerModule,
-    RouterModule.forRoot(APP_ROUTES, {useHash: true, relativeLinkResolution: 'legacy'}),
+    RouterModule.forRoot(APP_ROUTES, { useHash: true, relativeLinkResolution: 'legacy' }),
     // NOTE: both need to be present to use forFeature stores
-    StoreModule.forRoot(reducers,
-      {
-        metaReducers: [undoTaskDeleteMetaReducer, actionLoggerReducer],
-        ...(environment.production
-          ? {
+    StoreModule.forRoot(reducers, {
+      metaReducers: [undoTaskDeleteMetaReducer, actionLoggerReducer],
+      ...(environment.production
+        ? {
             runtimeChecks: {
               strictStateImmutability: false,
               strictActionImmutability: false,
@@ -93,47 +95,44 @@ export function createTranslateLoader(http: HttpClient) {
               strictActionSerializability: false,
             },
           }
-          : {
+        : {
             runtimeChecks: {
               strictStateImmutability: true,
               strictActionImmutability: true,
               strictStateSerializability: true,
               strictActionSerializability: true,
             },
-          })
-      }
-    ),
+          }),
+    }),
     EffectsModule.forRoot([]),
-    (!environment.production && !environment.stage) ? StoreDevtoolsModule.instrument() : [],
+    !environment.production && !environment.stage ? StoreDevtoolsModule.instrument() : [],
     ReactiveFormsModule,
     FormlyModule.forRoot({
       extras: {
-        immutable: true
+        immutable: true,
       },
-      validationMessages: [
-        {name: 'pattern', message: 'Invalid input'},
-      ],
+      validationMessages: [{ name: 'pattern', message: 'Invalid input' }],
     }),
-    ServiceWorkerModule.register('ngsw-worker.js', {enabled: !(IS_ELECTRON) && (environment.production || environment.stage)}),
+    ServiceWorkerModule.register('ngsw-worker.js', {
+      enabled: !IS_ELECTRON && (environment.production || environment.stage),
+    }),
     TranslateModule.forRoot({
       loader: {
         provide: TranslateLoader,
         useFactory: createTranslateLoader,
-        deps: [HttpClient]
-      }
+        deps: [HttpClient],
+      },
     }),
-    EntityDataModule
+    EntityDataModule,
   ],
   bootstrap: [AppComponent],
   providers: [
-    {provide: ErrorHandler, useClass: GlobalErrorHandler},
-    {provide: HAMMER_GESTURE_CONFIG, useClass: MyHammerConfig},
+    { provide: ErrorHandler, useClass: GlobalErrorHandler },
+    { provide: HAMMER_GESTURE_CONFIG, useClass: MyHammerConfig },
   ],
 })
 export class AppModule {
-  constructor(
-    private _languageService: LanguageService,
-  ) {
+  constructor(private _languageService: LanguageService) {
     this._languageService.setDefault(LanguageCode.en);
     this._languageService.setFromBrowserLngIfAutoSwitchLng();
   }

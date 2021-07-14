@@ -1,6 +1,10 @@
 // NOTE: cuts off at month start and end per default
 
-export const getDateRangeForWeek = (year: number, weekNr: number, month?: number): {
+export const getDateRangeForWeek = (
+  year: number,
+  weekNr: number,
+  month?: number,
+): {
   rangeStart: Date;
   rangeEnd: Date;
 } => {
@@ -15,10 +19,12 @@ export const getDateRangeForWeek = (year: number, weekNr: number, month?: number
     // lastDayOfMonth
     const monthEnd = new Date(year, month, 0);
 
+    // prettier-ignore
     rangeStart = (rangeStart < monthStart)
       ? monthStart
       : rangeStart;
 
+    // prettier-ignore
     rangeEnd = (rangeEnd > monthEnd)
       ? monthEnd
       : rangeEnd;
@@ -26,7 +32,7 @@ export const getDateRangeForWeek = (year: number, weekNr: number, month?: number
 
   return {
     rangeStart: rangeStartWithTime(rangeStart),
-    rangeEnd: rangeEndWithTime(rangeEnd)
+    rangeEnd: rangeEndWithTime(rangeEnd),
   };
 };
 
@@ -37,7 +43,8 @@ export const rangeStartWithTime = (rs: Date): Date => {
 };
 
 export const getDateFromWeekNr = (year: number, week: number): Date => {
-  const simple = new Date(year, 0, 1 + (week - 1) * 7);
+  // prettier-ignore
+  const simple = new Date(year, 0, 1 + ((week - 1) * 7));
   const dow = simple.getDay();
   const ISOWeekStart = simple;
   if (dow <= 4) {

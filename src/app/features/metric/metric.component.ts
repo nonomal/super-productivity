@@ -7,6 +7,7 @@ import { LineChartData } from './metric.model';
 import { fadeAnimation } from '../../ui/animations/fade.ani';
 import { T } from '../../t.const';
 import { ProjectMetricsService } from './project-metrics.service';
+import { WorkContextService } from '../work-context/work-context.service';
 
 @Component({
   selector: 'metric',
@@ -18,7 +19,8 @@ import { ProjectMetricsService } from './project-metrics.service';
 export class MetricComponent {
   T: typeof T = T;
 
-  productivityHappiness$: Observable<LineChartData> = this.metricService.getProductivityHappinessChartData$();
+  productivityHappiness$: Observable<LineChartData> =
+    this.metricService.getProductivityHappinessChartData$();
 
   pieChartOptions: ChartOptions = {
     responsive: true,
@@ -38,8 +40,8 @@ export class MetricComponent {
   lineChartPlugins: any[] = [];
 
   constructor(
+    public workContextService: WorkContextService,
     public metricService: MetricService,
     public projectMetricsService: ProjectMetricsService,
-  ) {
-  }
+  ) {}
 }

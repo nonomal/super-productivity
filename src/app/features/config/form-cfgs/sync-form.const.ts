@@ -2,7 +2,6 @@
 import { T } from '../../../t.const';
 import { ConfigFormSection, DropboxSyncConfig, SyncConfig } from '../global-config.model';
 import { SyncProvider } from '../../../imex/sync/sync-provider.model';
-import { DROPBOX_AUTH_CODE_URL } from '../../../imex/sync/dropbox/dropbox.const';
 import { IS_F_DROID_APP } from '../../../util/is-android-web-view';
 
 export const SYNC_FORM: ConfigFormSection<SyncConfig> = {
@@ -22,6 +21,7 @@ export const SYNC_FORM: ConfigFormSection<SyncConfig> = {
       // NOTE: we don't hide because model updates don't seem to work properly for this
       // hideExpression: ((model: DropboxSyncConfig) => !model.accessToken),
       templateOptions: {
+        required: true,
         isAllowSeconds: true,
         label: T.F.SYNC.FORM.L_SYNC_INTERVAL,
       },
@@ -33,53 +33,25 @@ export const SYNC_FORM: ConfigFormSection<SyncConfig> = {
         label: T.F.SYNC.FORM.L_SYNC_PROVIDER,
         required: true,
         options: [
-          {label: SyncProvider.Dropbox, value: SyncProvider.Dropbox},
-          ...(IS_F_DROID_APP ? [] : [{label: SyncProvider.GoogleDrive, value: SyncProvider.GoogleDrive}]),
-          {label: SyncProvider.WebDAV, value: SyncProvider.WebDAV},
+          { label: SyncProvider.Dropbox, value: SyncProvider.Dropbox },
+          ...(IS_F_DROID_APP
+            ? []
+            : [{ label: SyncProvider.GoogleDrive, value: SyncProvider.GoogleDrive }]),
+          { label: SyncProvider.WebDAV, value: SyncProvider.WebDAV },
         ],
       },
     },
     {
       // TODO animation maybe
-      hideExpression: ((m, v, field) => field?.parent?.model.syncProvider !== SyncProvider.Dropbox),
+      hideExpression: (m, v, field) =>
+        field?.parent?.model.syncProvider !== SyncProvider.Dropbox,
       key: 'dropboxSync',
-      templateOptions: {label: 'Address'},
+      templateOptions: { label: 'Address' },
       fieldGroup: [
-        {
-          type: 'tpl',
-          templateOptions: {
-            tag: 'p',
-            // text: `<p>Please open the following link and copy the auth code provided there</p>`,
-            text: T.F.SYNC.FORM.DROPBOX.FOLLOW_LINK,
-          },
-        },
-        {
-          type: 'tpl',
-          templateOptions: {
-            tag: 'p',
-            text: `<a href="${DROPBOX_AUTH_CODE_URL}" target="_blank">https://www.dropbox.com/oauth2/authorize?response_type=code</a>`,
-          },
-        },
-        {
-          key: 'authCode',
-          type: 'input',
-          templateOptions: {
-            label: T.F.SYNC.FORM.DROPBOX.L_AUTH_CODE,
-          },
-        },
-        {
-          type: 'tpl',
-          hideExpression: ((model: DropboxSyncConfig) => !!model.accessToken || !model.authCode),
-          templateOptions: {
-            tag: 'button',
-            class: 'mat-raised-button',
-            text: T.F.SYNC.FORM.DROPBOX.B_GENERATE_TOKEN,
-          },
-        },
         {
           key: 'accessToken',
           type: 'input',
-          hideExpression: ((model: DropboxSyncConfig) => !model.accessToken),
+          hideExpression: (model: DropboxSyncConfig) => !model.accessToken,
           templateOptions: {
             label: T.F.SYNC.FORM.DROPBOX.L_ACCESS_TOKEN,
           },
@@ -87,7 +59,8 @@ export const SYNC_FORM: ConfigFormSection<SyncConfig> = {
       ],
     },
     {
-      hideExpression: ((m, v, field) => field?.parent?.model.syncProvider !== SyncProvider.GoogleDrive),
+      hideExpression: (m, v, field) =>
+        field?.parent?.model.syncProvider !== SyncProvider.GoogleDrive,
       key: 'googleDriveSync',
       // templateOptions: {label: 'Address'},
       fieldGroup: [
@@ -109,7 +82,8 @@ export const SYNC_FORM: ConfigFormSection<SyncConfig> = {
       ],
     },
     {
-      hideExpression: ((m, v, field) => field?.parent?.model.syncProvider !== SyncProvider.WebDAV),
+      hideExpression: (m, v, field) =>
+        field?.parent?.model.syncProvider !== SyncProvider.WebDAV,
       key: 'webDav',
       // templateOptions: {label: 'Address'},
       fieldGroup: [
@@ -119,7 +93,6 @@ export const SYNC_FORM: ConfigFormSection<SyncConfig> = {
             tag: 'p',
             // text: `<p>Please open the following link and copy the auth code provided there</p>`,
             text: T.F.SYNC.FORM.WEB_DAV.CORS_INFO,
-
           },
         },
         {
@@ -128,7 +101,8 @@ export const SYNC_FORM: ConfigFormSection<SyncConfig> = {
           templateOptions: {
             required: true,
             label: T.F.SYNC.FORM.WEB_DAV.L_BASE_URL,
-            description: '* https://your-next-cloud/nextcloud/remote.php/dav/files/yourUserName'
+            description:
+              '* https://your-next-cloud/nextcloud/remote.php/dav/files/yourUserName',
           },
         },
         {
@@ -154,10 +128,10 @@ export const SYNC_FORM: ConfigFormSection<SyncConfig> = {
           templateOptions: {
             required: true,
             label: T.F.SYNC.FORM.WEB_DAV.L_SYNC_FILE_PATH,
-            description: '* my-sync-file.json'
+            description: '* my-sync-file.json',
           },
         },
       ],
     },
-  ]
+  ],
 };

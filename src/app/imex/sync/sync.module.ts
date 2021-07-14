@@ -12,21 +12,16 @@ import { DialogSyncConflictComponent } from './dialog-dbx-sync-conflict/dialog-s
 import { DialogGetAndEnterAuthCodeComponent } from './dialog-get-and-enter-auth-code/dialog-get-and-enter-auth-code.component';
 
 @NgModule({
-  declarations: [
-    DialogSyncConflictComponent,
-    DialogGetAndEnterAuthCodeComponent,
-  ],
+  declarations: [DialogSyncConflictComponent, DialogGetAndEnterAuthCodeComponent],
   imports: [
     FormsModule,
     UiModule,
     ConfigModule,
     EffectsModule.forFeature([SyncEffects]),
     CommonModule,
-
     DropboxModule,
     GoogleModule,
     WebDavModule,
   ],
 })
-export class SyncModule {
-}
+export class SyncModule {}

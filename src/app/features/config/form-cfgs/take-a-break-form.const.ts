@@ -11,21 +11,21 @@ export const TAKE_A_BREAK_FORM_CFG: ConfigFormSection<TakeABreakConfig> = {
       key: 'isTakeABreakEnabled',
       type: 'checkbox',
       templateOptions: {
-        label: T.GCF.TAKE_A_BREAK.IS_ENABLED
+        label: T.GCF.TAKE_A_BREAK.IS_ENABLED,
       },
     },
     {
       key: 'isLockScreen',
       type: 'checkbox',
       templateOptions: {
-        label: T.GCF.TAKE_A_BREAK.IS_LOCK_SCREEN
+        label: T.GCF.TAKE_A_BREAK.IS_LOCK_SCREEN,
       },
     },
     {
       key: 'isFocusWindow',
       type: 'checkbox',
       templateOptions: {
-        label: T.GCF.TAKE_A_BREAK.IS_FOCUS_WINDOW
+        label: T.GCF.TAKE_A_BREAK.IS_FOCUS_WINDOW,
       },
     },
     {
@@ -33,7 +33,17 @@ export const TAKE_A_BREAK_FORM_CFG: ConfigFormSection<TakeABreakConfig> = {
       type: 'duration',
       hideExpression: '!model.isTakeABreakEnabled',
       templateOptions: {
-        label: T.GCF.TAKE_A_BREAK.MIN_WORKING_TIME
+        label: T.GCF.TAKE_A_BREAK.MIN_WORKING_TIME,
+        required: true,
+      },
+    },
+    {
+      key: 'takeABreakSnoozeTime',
+      type: 'duration',
+      hideExpression: '!model.isTakeABreakEnabled',
+      templateOptions: {
+        label: T.GCF.TAKE_A_BREAK.SNOOZE_TIME,
+        required: true,
       },
     },
     {
@@ -41,7 +51,7 @@ export const TAKE_A_BREAK_FORM_CFG: ConfigFormSection<TakeABreakConfig> = {
       type: 'textarea',
       hideExpression: '!model.isTakeABreakEnabled',
       templateOptions: {
-        label: T.GCF.TAKE_A_BREAK.MESSAGE
+        label: T.GCF.TAKE_A_BREAK.MESSAGE,
       },
     },
     {
@@ -49,8 +59,8 @@ export const TAKE_A_BREAK_FORM_CFG: ConfigFormSection<TakeABreakConfig> = {
       type: 'input',
       hideExpression: '!model.isTakeABreakEnabled',
       templateOptions: {
-        label: T.GCF.TAKE_A_BREAK.MOTIVATIONAL_IMG
+        label: T.GCF.TAKE_A_BREAK.MOTIVATIONAL_IMG,
       },
     },
-  ]
+  ],
 };

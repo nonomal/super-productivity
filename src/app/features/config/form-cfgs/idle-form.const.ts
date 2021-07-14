@@ -31,6 +31,7 @@ export const IDLE_FORM_CFG: ConfigFormSection<IdleConfig> = {
       type: 'duration',
       hideExpression: '!model.isEnableIdleTimeTracking',
       templateOptions: {
+        required: true,
         label: T.GCF.IDLE.MIN_IDLE_TIME,
       },
     },
@@ -52,5 +53,5 @@ export const IDLE_FORM_CFG: ConfigFormSection<IdleConfig> = {
         label: T.GCF.IDLE.IS_UN_TRACKED_IDLE_RESETS_BREAK_TIMER,
       },
     },
-  ]
+  ],
 };

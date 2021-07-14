@@ -4,6 +4,7 @@ export type KeyboardConfig = Readonly<{
   globalAddTask: string | null;
   toggleBacklog: string | null;
   goToWorkView: string | null;
+  goToTimeline: string | null;
   goToScheduledView: string | null;
   // goToFocusMode: string|null,
   // goToDailyAgenda: string|null,
@@ -11,6 +12,7 @@ export type KeyboardConfig = Readonly<{
   addNewTask: string | null;
   globalToggleTaskStart: string | null;
   showHelp: string | null;
+  showSearchBar: string | null;
   addNewNote: string | null;
   toggleSideNav: string | null;
   openProjectNotes: string | null;

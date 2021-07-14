@@ -16,29 +16,41 @@ export const initialPomodoroState: PomodoroState = {
 };
 
 // SELECTORS
-export const selectPomodoroFeatureState = createFeatureSelector<PomodoroState>(POMODORO_FEATURE_NAME);
-export const selectIsManualPause = createSelector(selectPomodoroFeatureState, state => state.isManualPause);
-export const selectIsBreak = createSelector(selectPomodoroFeatureState, state => state.isBreak);
-export const selectCurrentCycle = createSelector(selectPomodoroFeatureState, state => state.currentCycle);
+export const selectPomodoroFeatureState =
+  createFeatureSelector<PomodoroState>(POMODORO_FEATURE_NAME);
+export const selectIsManualPause = createSelector(
+  selectPomodoroFeatureState,
+  (state) => state.isManualPause,
+);
+export const selectIsBreak = createSelector(
+  selectPomodoroFeatureState,
+  (state) => state.isBreak,
+);
+export const selectCurrentCycle = createSelector(
+  selectPomodoroFeatureState,
+  (state) => state.currentCycle,
+);
 
-export function pomodoroReducer(state: PomodoroState = initialPomodoroState, action: PomodoroActions): PomodoroState {
+export const pomodoroReducer = (
+  state: PomodoroState = initialPomodoroState,
+  action: PomodoroActions,
+): PomodoroState => {
   switch (action.type) {
-
-    case  PomodoroActionTypes.StartPomodoro: {
+    case PomodoroActionTypes.StartPomodoro: {
       return {
         ...state,
         isManualPause: false,
       };
     }
 
-    case  PomodoroActionTypes.PausePomodoro: {
+    case PomodoroActionTypes.PausePomodoro: {
       return {
         ...state,
         isManualPause: true,
       };
     }
 
-    case  PomodoroActionTypes.StopPomodoro: {
+    case PomodoroActionTypes.StopPomodoro: {
       return {
         isManualPause: true,
         isBreak: false,
@@ -46,16 +58,16 @@ export function pomodoroReducer(state: PomodoroState = initialPomodoroState, act
       };
     }
 
-    case  PomodoroActionTypes.SkipPomodoroBreak:
-    case  PomodoroActionTypes.FinishPomodoroSession: {
+    case PomodoroActionTypes.SkipPomodoroBreak:
+    case PomodoroActionTypes.FinishPomodoroSession: {
       return {
         ...state,
         isBreak: !state.isBreak,
-        currentCycle: (state.isBreak ? (state.currentCycle + 1) : state.currentCycle),
+        currentCycle: state.isBreak ? state.currentCycle + 1 : state.currentCycle,
       };
     }
 
     default:
       return state;
   }
-}
+};

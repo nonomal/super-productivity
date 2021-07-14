@@ -16,11 +16,11 @@ const getResponseChannels = (channel: string) => {
   return {
     sendChannel: getSendChannel(channel),
     dataChannel: `%better-ipc-response-data-channel-${channel}-${id}`,
-    errorChannel: `%better-ipc-response-error-channel-${channel}-${id}`
+    errorChannel: `%better-ipc-response-error-channel-${channel}-${id}`,
   };
 };
 
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class ElectronService {
   ipcRenderer?: typeof ipcRenderer;
   webFrame?: typeof webFrame;
@@ -38,6 +38,15 @@ export class ElectronService {
       this.remote = electron.remote;
       // NOTE: works for non-sandboxed electron only
       this.shell = (electron as any).shell;
+
+      // log to file for production
+      // if (environment.production || environment.stage) {
+      // const log = (this.remote as typeof remote).require('electron-log');
+      // log.transports.maxSize = 1024 * 1024 * 20;
+      // console.error = log.error;
+      // console.log = log.log;
+      // console.warn = log.warn;
+      // }
     }
 
     // NOTE: useful in case we want to disable the node integration
@@ -74,7 +83,7 @@ export class ElectronService {
 
   public callMain(channel: string, data: unknown) {
     return new Promise((resolve, reject) => {
-      const {sendChannel, dataChannel, errorChannel} = getResponseChannels(channel);
+      const { sendChannel, dataChannel, errorChannel } = getResponseChannels(channel);
 
       const cleanup = () => {
         (this.ipcRenderer as typeof ipcRenderer).off(dataChannel, onData);
@@ -98,7 +107,7 @@ export class ElectronService {
       const completeData = {
         dataChannel,
         errorChannel,
-        userData: data
+        userData: data,
       };
 
       (this.ipcRenderer as typeof ipcRenderer).send(sendChannel, completeData);

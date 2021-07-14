@@ -3,7 +3,7 @@ import { WorklogExportSettings } from '../worklog/worklog.model';
 // normally imported from here, but this includes non type files as well..
 // import {HueValue} from 'angular-material-css-vars';
 type HueValue =
-  '50'
+  | '50'
   | '100'
   | '200'
   | '300'
@@ -55,7 +55,7 @@ export type WorkContextThemeCfg = Readonly<{
 
 export enum WorkContextType {
   PROJECT = 'PROJECT',
-  TAG = 'TAG'
+  TAG = 'TAG',
 }
 
 export interface WorkContextCommon {
@@ -82,7 +82,7 @@ export interface WorkContextCopy extends WorkContextCommon {
 export type WorkContext = Readonly<WorkContextCopy>;
 
 export interface WorkContextState {
-  activeId: string | null;
-  activeType: WorkContextType | null;
+  activeId: string;
+  activeType: WorkContextType;
   // additional entities state properties
 }

@@ -1,5 +1,5 @@
 export const WORKLOG_DATE_STR_FORMAT = 'YYYY-MM-DD';
-export const IS_ELECTRON = (navigator.userAgent.toLowerCase().indexOf(' electron/') > -1);
+export const IS_ELECTRON = navigator.userAgent.toLowerCase().indexOf(' electron/') > -1;
 export const TRACKING_INTERVAL = 1000;
 
 export const MODEL_VERSION_KEY = '__modelVersion';
@@ -21,7 +21,9 @@ import '@angular/common/locales/global/pt';
 import '@angular/common/locales/global/nl';
 import '@angular/common/locales/global/nb';
 
-export const ALL_THEMES = [
+export const DAY_STARTS_AT: string = '9:00';
+
+export const ALL_THEMES: string[] = [
   'blue',
   'blue-grey',
   'light-blue',
@@ -116,10 +118,7 @@ export const AUTO_SWITCH_LNGS: LanguageCode[] = [
   LanguageCode.tr,
 ];
 
-export const RTL_LANGUAGES: LanguageCode[] = [
-  LanguageCode.ar,
-  LanguageCode.fa
-];
+export const RTL_LANGUAGES: LanguageCode[] = [LanguageCode.ar, LanguageCode.fa];
 
 export enum THEME_COLOR_MAP {
   'light-blue' = '#03a9f4',

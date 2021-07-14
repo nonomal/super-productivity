@@ -8,7 +8,7 @@ import {
   OnDestroy,
   OnInit,
   Output,
-  ViewChild
+  ViewChild,
 } from '@angular/core';
 import * as shortid from 'shortid';
 import * as moment from 'moment';
@@ -33,15 +33,12 @@ export class InputDurationSliderComponent implements OnInit, OnDestroy {
   endHandler?: () => void;
   moveHandler?: (ev: any) => void;
 
-  @ViewChild('circleEl', {static: true}) circleEl?: ElementRef;
+  @ViewChild('circleEl', { static: true }) circleEl?: ElementRef;
 
   @Input() label: string = '';
   @Output() modelChange: EventEmitter<number> = new EventEmitter();
 
-  constructor(
-    private _el: ElementRef,
-    private _cd: ChangeDetectorRef,
-  ) {
+  constructor(private _el: ElementRef, private _cd: ChangeDetectorRef) {
     this.el = this._el.nativeElement;
   }
 
@@ -56,7 +53,6 @@ export class InputDurationSliderComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.startHandler = (ev) => {
-
       if (!this.endHandler || !this.moveHandler || !this.circleEl) {
         throw new Error();
       }
@@ -77,9 +73,10 @@ export class InputDurationSliderComponent implements OnInit, OnDestroy {
     };
 
     this.moveHandler = (ev) => {
-      if (ev.type === 'click' &&
-        (ev.target.tagName === 'LABEL' ||
-          ev.target.tagName === 'INPUT')) {
+      if (
+        ev.type === 'click' &&
+        (ev.target.tagName === 'LABEL' || ev.target.tagName === 'INPUT')
+      ) {
         return;
       }
       if (!this.endHandler || !this.moveHandler || !this.circleEl) {
@@ -89,9 +86,7 @@ export class InputDurationSliderComponent implements OnInit, OnDestroy {
       // prevent touchmove
       ev.preventDefault();
 
-      function convertThetaToCssDegrees(thetaIN: number) {
-        return 90 - thetaIN;
-      }
+      const convertThetaToCssDegrees = (thetaIN: number) => 90 - thetaIN;
 
       const centerX = this.circleEl.nativeElement.offsetWidth / 2;
       const centerY = this.circleEl.nativeElement.offsetHeight / 2;
@@ -165,7 +160,6 @@ export class InputDurationSliderComponent implements OnInit, OnDestroy {
     if (hours > 12) {
       hours = 12;
     }
-    console.log(hours);
 
     this.dots = new Array(hours);
   }
@@ -176,9 +170,9 @@ export class InputDurationSliderComponent implements OnInit, OnDestroy {
     let minutesFromDegrees;
     // NOTE: values are negative for the last quadrant
     if (degrees >= 0) {
-      minutesFromDegrees = (degrees / 360 * 60);
+      minutesFromDegrees = (degrees / 360) * 60;
     } else {
-      minutesFromDegrees = ((degrees + 360) / 360 * 60);
+      minutesFromDegrees = ((degrees + 360) / 360) * 60;
     }
 
     minutesFromDegrees = Math.round(minutesFromDegrees / 5) * 5;
@@ -187,15 +181,19 @@ export class InputDurationSliderComponent implements OnInit, OnDestroy {
       minutesFromDegrees = 0;
     }
 
-    let hours = Math.floor(moment.duration({
-      milliseconds: this._model
-    }).asHours());
+    let hours = Math.floor(
+      moment
+        .duration({
+          milliseconds: this._model,
+        })
+        .asHours(),
+    );
 
     const minuteDelta = minutesFromDegrees - this.minutesBefore;
 
     if (minuteDelta > THRESHOLD) {
       hours--;
-    } else if ((-1 * minuteDelta) > THRESHOLD) {
+    } else if (-1 * minuteDelta > THRESHOLD) {
       hours++;
     }
 
@@ -209,10 +207,12 @@ export class InputDurationSliderComponent implements OnInit, OnDestroy {
 
     this.minutesBefore = minutesFromDegrees;
     this.setDots(hours);
-    this._model = moment.duration({
-      hours,
-      minutes: minutesFromDegrees
-    }).asMilliseconds();
+    this._model = moment
+      .duration({
+        hours,
+        minutes: minutesFromDegrees,
+      })
+      .asMilliseconds();
 
     this.modelChange.emit(this._model);
     this._cd.detectChanges();
@@ -225,14 +225,13 @@ export class InputDurationSliderComponent implements OnInit, OnDestroy {
   }
 
   setRotationFromValue(val: number = this._model) {
-    console.log(val);
     const momentVal = moment.duration({
-      milliseconds: val
+      milliseconds: val,
     });
 
     const minutes = momentVal.minutes();
     this.setDots(Math.floor(momentVal.asHours()));
-    const degrees = minutes * 360 / 60;
+    const degrees = (minutes * 360) / 60;
     this.minutesBefore = minutes;
     this.setCircleRotation(degrees);
     this._cd.detectChanges();

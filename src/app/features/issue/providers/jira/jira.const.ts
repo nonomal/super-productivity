@@ -2,7 +2,10 @@
 import { JiraCfg } from './jira.model';
 import { GITHUB_INITIAL_POLL_DELAY } from '../github/github.const';
 import { T } from '../../../../t.const';
-import { ConfigFormSection, LimitedFormlyFieldConfig } from '../../../config/global-config.model';
+import {
+  ConfigFormSection,
+  LimitedFormlyFieldConfig,
+} from '../../../config/global-config.model';
 
 export const JIRA_DATETIME_FORMAT = 'YYYY-MM-DDTHH:mm:ss.SSZZ';
 
@@ -18,7 +21,8 @@ export const DEFAULT_JIRA_CFG: JiraCfg = {
   searchJqlQuery: '',
 
   isAutoAddToBacklog: true,
-  autoAddBacklogJqlQuery: 'assignee = currentUser() AND sprint in openSprints() AND resolution = Unresolved',
+  autoAddBacklogJqlQuery:
+    'assignee = currentUser() AND sprint in openSprints() AND resolution = Unresolved',
 
   isWorklogEnabled: true,
   isAutoWorklog: false,
@@ -38,9 +42,9 @@ export const DEFAULT_JIRA_CFG: JiraCfg = {
   transitionConfig: {
     OPEN: 'DO_NOT',
     IN_PROGRESS: 'ALWAYS_ASK',
-    DONE: 'ALWAYS_ASK'
+    DONE: 'ALWAYS_ASK',
   },
-  userToAssignOnDone: null
+  userToAssignOnDone: null,
 };
 
 // export const JIRA_POLL_INTERVAL = 10 * 1000;
@@ -48,7 +52,7 @@ export const DEFAULT_JIRA_CFG: JiraCfg = {
 
 export const JIRA_POLL_INTERVAL = 5 * 60 * 1000;
 export const JIRA_INITIAL_POLL_DELAY = GITHUB_INITIAL_POLL_DELAY + 4000;
-export const JIRA_INITIAL_POLL_BACKLOG_DELAY = JIRA_INITIAL_POLL_DELAY + 10 * 1000;
+export const JIRA_INITIAL_POLL_BACKLOG_DELAY = JIRA_INITIAL_POLL_DELAY + 10000;
 
 // it's weird!!
 export const JIRA_DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss.SSZZ';
@@ -84,7 +88,8 @@ export const JIRA_CREDENTIALS_FORM_CFG: LimitedFormlyFieldConfig<JiraCfg>[] = [
     templateOptions: {
       type: 'url',
       /* eslint-disable-next-line */
-      pattern: /^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$/i,
+      pattern:
+        /^(?:http(s)?:\/\/)?[\w.-]+(?:\.[\w\.-]+)+[\w\-\._~:/?#[\]@!\$&'\(\)\*\+,;=.]+$/i,
       required: true,
       label: T.F.JIRA.FORM_CRED.HOST,
     },
@@ -104,21 +109,21 @@ export const JIRA_CREDENTIALS_FORM_CFG: LimitedFormlyFieldConfig<JiraCfg>[] = [
       required: true,
       label: T.F.JIRA.FORM_CRED.PASSWORD,
       type: 'password',
-      description: '* https://confluence.atlassian.com/cloud/api-tokens-938839638.html'
+      description: '* https://confluence.atlassian.com/cloud/api-tokens-938839638.html',
     },
   },
   {
     key: 'isAllowSelfSignedCertificate',
     type: 'checkbox',
     templateOptions: {
-      label: T.F.JIRA.FORM_CRED.ALLOW_SELF_SIGNED
+      label: T.F.JIRA.FORM_CRED.ALLOW_SELF_SIGNED,
     },
   },
   {
     key: 'isWonkyCookieMode',
     type: 'checkbox',
     templateOptions: {
-      label: T.F.JIRA.FORM_CRED.WONKY_COOKIE_MODE
+      label: T.F.JIRA.FORM_CRED.WONKY_COOKIE_MODE,
     },
   },
 ];
@@ -128,49 +133,49 @@ export const JIRA_ADVANCED_FORM_CFG: LimitedFormlyFieldConfig<JiraCfg>[] = [
     key: 'isAutoPollTickets',
     type: 'checkbox',
     templateOptions: {
-      label: T.F.JIRA.FORM_ADV.IS_AUTO_POLL_TICKETS
+      label: T.F.JIRA.FORM_ADV.IS_AUTO_POLL_TICKETS,
     },
   },
   {
     key: 'isCheckToReAssignTicketOnTaskStart',
     type: 'checkbox',
     templateOptions: {
-      label: T.F.JIRA.FORM_ADV.IS_CHECK_TO_RE_ASSIGN_TICKET_ON_TASK_START
+      label: T.F.JIRA.FORM_ADV.IS_CHECK_TO_RE_ASSIGN_TICKET_ON_TASK_START,
     },
   },
   {
     key: 'isAutoAddToBacklog',
     type: 'checkbox',
     templateOptions: {
-      label: T.F.JIRA.FORM_ADV.IS_AUTO_ADD_TO_BACKLOG
+      label: T.F.JIRA.FORM_ADV.IS_AUTO_ADD_TO_BACKLOG,
     },
   },
   {
     key: 'autoAddBacklogJqlQuery',
     type: 'input',
     templateOptions: {
-      label: T.F.JIRA.FORM_ADV.AUTO_ADD_BACKLOG_JQL_QUERY
+      label: T.F.JIRA.FORM_ADV.AUTO_ADD_BACKLOG_JQL_QUERY,
     },
   },
   {
     key: 'searchJqlQuery',
     type: 'input',
     templateOptions: {
-      label: T.F.JIRA.FORM_ADV.SEARCH_JQL_QUERY
+      label: T.F.JIRA.FORM_ADV.SEARCH_JQL_QUERY,
     },
   },
   {
     key: 'isWorklogEnabled',
     type: 'checkbox',
     templateOptions: {
-      label: T.F.JIRA.FORM_ADV.IS_WORKLOG_ENABLED
+      label: T.F.JIRA.FORM_ADV.IS_WORKLOG_ENABLED,
     },
   },
   {
     key: 'isAddWorklogOnSubTaskDone',
     type: 'checkbox',
     templateOptions: {
-      label: T.F.JIRA.FORM_ADV.IS_ADD_WORKLOG_ON_SUB_TASK_DONE
+      label: T.F.JIRA.FORM_ADV.IS_ADD_WORKLOG_ON_SUB_TASK_DONE,
     },
   },
 ];
@@ -205,7 +210,7 @@ export const JIRA_CONFIG_FORM_SECTION: ConfigFormSection<JiraCfg> = {
       templateOptions: {
         tag: 'h3',
         class: 'sub-section-heading',
-        text: T.F.JIRA.FORM_SECTION.CREDENTIALS
+        text: T.F.JIRA.FORM_SECTION.CREDENTIALS,
       },
     },
     ...JIRA_CREDENTIALS_FORM_CFG,
@@ -215,9 +220,9 @@ export const JIRA_CONFIG_FORM_SECTION: ConfigFormSection<JiraCfg> = {
       templateOptions: {
         tag: 'h3',
         class: 'sub-section-heading',
-        text: T.F.JIRA.FORM_SECTION.ADV_CFG
+        text: T.F.JIRA.FORM_SECTION.ADV_CFG,
       },
     },
     ...JIRA_ADVANCED_FORM_CFG,
-  ]
+  ],
 };

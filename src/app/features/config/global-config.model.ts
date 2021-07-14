@@ -38,6 +38,7 @@ export type TakeABreakConfig = Readonly<{
   isFocusWindow: boolean;
   takeABreakMessage: string;
   takeABreakMinWorkingTime: number;
+  takeABreakSnoozeTime: number;
   motivationalImg: string | null;
 }>;
 
@@ -67,7 +68,6 @@ export interface GoogleDriveSyncConfig {
 }
 
 export interface DropboxSyncConfig {
-  authCode: string | null;
   accessToken: string | null;
 }
 
@@ -103,12 +103,19 @@ export type SyncConfig = Readonly<{
   webDav: WebDavConfig;
 }>;
 
+export type TimelineConfig = Readonly<{
+  isWorkStartEndEnabled: boolean;
+  workStart: string;
+  workEnd: string;
+}>;
+
 export type TrackingReminderConfig = Readonly<{
   isEnabled: boolean;
   isShowOnMobile: boolean;
   minTime: number;
 }>;
 
+// NOTE: config properties being undefined always means that they should be overwritten with the default value
 export type GlobalConfigState = Readonly<{
   lang: LanguageConfig;
   misc: MiscConfig;
@@ -120,6 +127,7 @@ export type GlobalConfigState = Readonly<{
   localBackup: LocalBackupConfig;
   sound: SoundConfig;
   trackingReminder: TrackingReminderConfig;
+  timeline: TimelineConfig;
 
   sync: SyncConfig;
 
@@ -128,23 +136,20 @@ export type GlobalConfigState = Readonly<{
 
 export type GlobalConfigSectionKey = keyof GlobalConfigState | 'EMPTY';
 
-export type GlobalSectionConfig
-  = MiscConfig
+export type GlobalSectionConfig =
+  | MiscConfig
   | PomodoroConfig
-  | DropboxSyncConfig
   | KeyboardConfig
-  | SyncConfig
-  ;
+  | TimelineConfig
+  | SyncConfig;
 type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>;
 
-export interface LimitedFormlyFieldConfig<FormModel> extends Omit<FormlyFieldConfig, 'key'> {
+export interface LimitedFormlyFieldConfig<FormModel>
+  extends Omit<FormlyFieldConfig, 'key'> {
   key?: keyof FormModel;
 }
 
-export type CustomCfgSection =
-  'FILE_IMPORT_EXPORT'
-  | 'JIRA_CFG'
-  | 'SIMPLE_COUNTER_CFG';
+export type CustomCfgSection = 'FILE_IMPORT_EXPORT' | 'JIRA_CFG' | 'SIMPLE_COUNTER_CFG';
 
 // Intermediate model
 export interface ConfigFormSection<FormModel> {
@@ -157,10 +162,9 @@ export interface ConfigFormSection<FormModel> {
   isElectronOnly?: boolean;
 }
 
-export interface GenericConfigFormSection extends Omit<ConfigFormSection<unknown>, 'items'> {
+export interface GenericConfigFormSection
+  extends Omit<ConfigFormSection<unknown>, 'items'> {
   items?: FormlyFieldConfig[];
 }
 
 export type ConfigFormConfig = Readonly<GenericConfigFormSection[]>;
-
-

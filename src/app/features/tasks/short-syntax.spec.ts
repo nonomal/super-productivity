@@ -21,6 +21,7 @@ const TASK: TaskCopy = {
   reminderId: null,
   created: Date.now(),
   repeatCfgId: null,
+  plannedAt: null,
 
   _showSubTasksMode: ShowSubTasksMode.Show,
 
@@ -34,12 +35,12 @@ const TASK: TaskCopy = {
   issueWasUpdated: null,
 };
 const ALL_TAGS: Tag[] = [
-  {...DEFAULT_TAG, id: 'blu_id', title: 'blu'},
-  {...DEFAULT_TAG, id: 'bla_id', title: 'bla'},
-  {...DEFAULT_TAG, id: 'hihi_id', title: 'hihi'},
-  {...DEFAULT_TAG, id: '1_id', title: '1'},
-  {...DEFAULT_TAG, id: 'A_id', title: 'A'},
-  {...DEFAULT_TAG, id: 'multi_word_id', title: 'Multi Word Tag'},
+  { ...DEFAULT_TAG, id: 'blu_id', title: 'blu' },
+  { ...DEFAULT_TAG, id: 'bla_id', title: 'bla' },
+  { ...DEFAULT_TAG, id: 'hihi_id', title: 'hihi' },
+  { ...DEFAULT_TAG, id: '1_id', title: '1' },
+  { ...DEFAULT_TAG, id: 'A_id', title: 'A' },
+  { ...DEFAULT_TAG, id: 'multi_word_id', title: 'Multi Word Tag' },
 ];
 
 describe('shortSyntax', () => {
@@ -51,7 +52,7 @@ describe('shortSyntax', () => {
   it('should ignore if the changes cause no further changes', () => {
     const r = shortSyntax({
       ...TASK,
-      title: 'So what shall I do'
+      title: 'So what shall I do',
     });
     expect(r).toEqual(undefined);
   });
@@ -60,7 +61,7 @@ describe('shortSyntax', () => {
     it('', () => {
       const t = {
         ...TASK,
-        title: 'Fun title 10m/1h'
+        title: 'Fun title 10m/1h',
       };
       const r = shortSyntax(t);
       expect(r).toEqual({
@@ -71,9 +72,9 @@ describe('shortSyntax', () => {
           title: 'Fun title',
           // timeSpent: 7200000,
           timeSpentOnDay: {
-            [getWorklogStr()]: 600000
+            [getWorklogStr()]: 600000,
           },
-          timeEstimate: 3600000
+          timeEstimate: 3600000,
         },
       });
     });
@@ -81,7 +82,7 @@ describe('shortSyntax', () => {
     it('', () => {
       const t = {
         ...TASK,
-        title: 'Fun title whatever 1h/120m'
+        title: 'Fun title whatever 1h/120m',
       };
       const r = shortSyntax(t);
       expect(r).toEqual({
@@ -92,10 +93,10 @@ describe('shortSyntax', () => {
           title: 'Fun title whatever',
           // timeSpent: 7200000,
           timeSpentOnDay: {
-            [getWorklogStr()]: 3600000
+            [getWorklogStr()]: 3600000,
           },
-          timeEstimate: 7200000
-        }
+          timeEstimate: 7200000,
+        },
       });
     });
   });
@@ -104,7 +105,7 @@ describe('shortSyntax', () => {
     it('should not trigger for tasks with starting # (e.g. github issues)', () => {
       const t = {
         ...TASK,
-        title: '#134 Fun title'
+        title: '#134 Fun title',
       };
       const r = shortSyntax(t, ALL_TAGS);
 
@@ -114,7 +115,7 @@ describe('shortSyntax', () => {
     it('should not trigger for tasks with starting # (e.g. github issues) when adding tags', () => {
       const t = {
         ...TASK,
-        title: '#134 Fun title #blu'
+        title: '#134 Fun title #blu',
       };
       const r = shortSyntax(t, ALL_TAGS);
 
@@ -124,15 +125,15 @@ describe('shortSyntax', () => {
         projectId: undefined,
         taskChanges: {
           title: '#134 Fun title',
-          tagIds: ['blu_id']
-        }
+          tagIds: ['blu_id'],
+        },
       });
     });
 
     it('should work with tags', () => {
       const t = {
         ...TASK,
-        title: 'Fun title #blu #A'
+        title: 'Fun title #blu #A',
       };
       const r = shortSyntax(t, ALL_TAGS);
 
@@ -142,8 +143,8 @@ describe('shortSyntax', () => {
         projectId: undefined,
         taskChanges: {
           title: 'Fun title',
-          tagIds: ['blu_id', 'A_id']
-        }
+          tagIds: ['blu_id', 'A_id'],
+        },
       });
     });
 
@@ -151,7 +152,7 @@ describe('shortSyntax', () => {
       const t = {
         ...TASK,
         title: 'Fun title #blu #hihi',
-        tagIds: ['blu_id', 'A', 'multi_word_id']
+        tagIds: ['blu_id', 'A', 'multi_word_id'],
       };
       const r = shortSyntax(t, ALL_TAGS);
 
@@ -161,8 +162,8 @@ describe('shortSyntax', () => {
         projectId: undefined,
         taskChanges: {
           title: 'Fun title',
-          tagIds: ['blu_id', 'A', 'multi_word_id', 'hihi_id']
-        }
+          tagIds: ['blu_id', 'A', 'multi_word_id', 'hihi_id'],
+        },
       });
     });
 
@@ -170,7 +171,7 @@ describe('shortSyntax', () => {
       const t = {
         ...TASK,
         title: 'Fun title #blu #idontexist',
-        tagIds: []
+        tagIds: [],
       };
       const r = shortSyntax(t, ALL_TAGS);
 
@@ -180,8 +181,8 @@ describe('shortSyntax', () => {
         projectId: undefined,
         taskChanges: {
           title: 'Fun title',
-          tagIds: ['blu_id']
-        }
+          tagIds: ['blu_id'],
+        },
       });
     });
 
@@ -189,7 +190,7 @@ describe('shortSyntax', () => {
       const t = {
         ...TASK,
         title: 'asd #asd',
-        tagIds: []
+        tagIds: [],
       };
       const r = shortSyntax(t, ALL_TAGS);
 
@@ -199,7 +200,7 @@ describe('shortSyntax', () => {
         projectId: undefined,
         taskChanges: {
           title: 'asd',
-        }
+        },
       });
     });
 
@@ -208,7 +209,7 @@ describe('shortSyntax', () => {
         ...TASK,
         parentId: 'SOMEPARENT',
         title: 'Fun title #blu #idontexist',
-        tagIds: []
+        tagIds: [],
       };
       const r = shortSyntax(t, ALL_TAGS);
 
@@ -220,7 +221,7 @@ describe('shortSyntax', () => {
     it('', () => {
       const t = {
         ...TASK,
-        title: 'Fun title #blu 10m/1h'
+        title: 'Fun title #blu 10m/1h',
       };
       const r = shortSyntax(t, ALL_TAGS);
       expect(r).toEqual({
@@ -231,11 +232,11 @@ describe('shortSyntax', () => {
           title: 'Fun title',
           // timeSpent: 7200000,
           timeSpentOnDay: {
-            [getWorklogStr()]: 600000
+            [getWorklogStr()]: 600000,
           },
           timeEstimate: 3600000,
-          tagIds: ['blu_id']
-        }
+          tagIds: ['blu_id'],
+        },
       });
     });
 
@@ -264,19 +265,19 @@ describe('shortSyntax', () => {
       projects = [
         {
           title: 'ProjectEasyShort',
-          id: 'ProjectEasyShortID'
+          id: 'ProjectEasyShortID',
         },
         {
           title: 'Some Project Title',
-          id: 'SomeProjectID'
-        }
+          id: 'SomeProjectID',
+        },
       ] as any;
     });
 
     it('should work', () => {
       const t = {
         ...TASK,
-        title: 'Fun title +ProjectEasyShort'
+        title: 'Fun title +ProjectEasyShort',
       };
       const r = shortSyntax(t, [], projects);
       expect(r).toEqual({
@@ -292,7 +293,7 @@ describe('shortSyntax', () => {
     it('should work together with time estimates', () => {
       const t = {
         ...TASK,
-        title: 'Fun title +ProjectEasyShort 10m/1h'
+        title: 'Fun title +ProjectEasyShort 10m/1h',
       };
       const r = shortSyntax(t, [], projects);
       expect(r).toEqual({
@@ -313,7 +314,7 @@ describe('shortSyntax', () => {
     it('should work with only the beginning of a project title if it is at least 3 chars long', () => {
       const t = {
         ...TASK,
-        title: 'Fun title +Project'
+        title: 'Fun title +Project',
       };
       const r = shortSyntax(t, [], projects);
       expect(r).toEqual({
@@ -329,7 +330,7 @@ describe('shortSyntax', () => {
     it('should work with multi word project titles', () => {
       const t = {
         ...TASK,
-        title: 'Fun title +Some Project Title'
+        title: 'Fun title +Some Project Title',
       };
       const r = shortSyntax(t, [], projects);
       expect(r).toEqual({
@@ -345,7 +346,7 @@ describe('shortSyntax', () => {
     it('should work with multi word project titles partial', () => {
       const t = {
         ...TASK,
-        title: 'Fun title +Some Pro'
+        title: 'Fun title +Some Pro',
       };
       const r = shortSyntax(t, [], projects);
       expect(r).toEqual({
@@ -361,7 +362,7 @@ describe('shortSyntax', () => {
     it('should work with multi word project titles partial written without white space', () => {
       const t = {
         ...TASK,
-        title: 'Other fun title +SomePro'
+        title: 'Other fun title +SomePro',
       };
       const r = shortSyntax(t, [], projects);
       expect(r).toEqual({
@@ -377,27 +378,26 @@ describe('shortSyntax', () => {
     it('should ignore non existing', () => {
       const t = {
         ...TASK,
-        title: 'Other fun title +Some non existing project'
+        title: 'Other fun title +Some non existing project',
       };
       const r = shortSyntax(t, [], projects);
       expect(r).toEqual(undefined);
     });
   });
 
-  describe('due:', () => {
-  });
+  describe('due:', () => {});
 
   describe('combined', () => {
     it('should work when time comes first', () => {
       const projects = [
         {
           title: 'ProjectEasyShort',
-          id: 'ProjectEasyShortID'
+          id: 'ProjectEasyShortID',
         },
       ] as any;
       const t = {
         ...TASK,
-        title: 'Fun title 10m/1h +ProjectEasyShort'
+        title: 'Fun title 10m/1h +ProjectEasyShort',
       };
       const r = shortSyntax(t, [], projects);
       expect(r).toEqual({
@@ -408,9 +408,9 @@ describe('shortSyntax', () => {
           title: 'Fun title',
           // timeSpent: 7200000,
           timeSpentOnDay: {
-            [getWorklogStr()]: 600000
+            [getWorklogStr()]: 600000,
           },
-          timeEstimate: 3600000
+          timeEstimate: 3600000,
         },
       });
     });

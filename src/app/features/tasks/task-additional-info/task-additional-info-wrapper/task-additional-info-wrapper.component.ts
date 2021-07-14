@@ -9,23 +9,17 @@ import { TaskWithSubTasks } from '../../task.model';
   selector: 'task-additional-info-wrapper',
   templateUrl: './task-additional-info-wrapper.component.html',
   styleUrls: ['./task-additional-info-wrapper.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TaskAdditionalInfoWrapperComponent {
   // NOTE: used for debugging
   @Input() isAlwaysOver: boolean = false;
 
   // to still display its data when panel is closing
-  selectedTaskWithDelayForNone$: Observable<TaskWithSubTasks | null> = this.taskService.selectedTask$.pipe(
-    switchMap((task) => task
-      ? of(task)
-      : of(null).pipe(delay(200))
-    )
-  );
+  selectedTaskWithDelayForNone$: Observable<TaskWithSubTasks | null> =
+    this.taskService.selectedTask$.pipe(
+      switchMap((task) => (task ? of(task) : of(null).pipe(delay(200)))),
+    );
 
-  constructor(
-    public taskService: TaskService,
-    public layoutService: LayoutService,
-  ) {
-  }
+  constructor(public taskService: TaskService, public layoutService: LayoutService) {}
 }

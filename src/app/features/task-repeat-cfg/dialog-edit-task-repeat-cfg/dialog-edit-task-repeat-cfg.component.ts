@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Inject, OnDestroy, OnInit } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  Inject,
+  OnDestroy,
+  OnInit,
+} from '@angular/core';
 import { Task } from '../../tasks/task.model';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { TaskRepeatCfgService } from '../task-repeat-cfg.service';
@@ -12,13 +19,14 @@ import { TagService } from '../../tag/tag.service';
 import { unique } from '../../../util/unique';
 import { Tag } from '../../tag/tag.model';
 import { exists } from '../../../util/exists';
+import { TODAY_TAG } from '../../tag/tag.const';
 
 // TASK_REPEAT_CFG_FORM_CFG
 @Component({
   selector: 'dialog-edit-task-repeat-cfg',
   templateUrl: './dialog-edit-task-repeat-cfg.component.html',
   styleUrls: ['./dialog-edit-task-repeat-cfg.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DialogEditTaskRepeatCfgComponent implements OnInit, OnDestroy {
   T: typeof T = T;
@@ -27,7 +35,8 @@ export class DialogEditTaskRepeatCfgComponent implements OnInit, OnDestroy {
   taskRepeatCfg: Omit<TaskRepeatCfgCopy, 'id'> = {
     ...DEFAULT_TASK_REPEAT_CFG,
     title: this.task.title,
-    tagIds: [...this.task.tagIds],
+    // NOTE: always add today tag, as that's likely what we want
+    tagIds: unique([TODAY_TAG.id, ...this.task.tagIds]),
   };
 
   taskRepeatCfgId: string | null = this.task.repeatCfgId;
@@ -46,15 +55,18 @@ export class DialogEditTaskRepeatCfgComponent implements OnInit, OnDestroy {
     private _taskRepeatCfgService: TaskRepeatCfgService,
     private _matDialogRef: MatDialogRef<DialogEditTaskRepeatCfgComponent>,
     @Inject(MAT_DIALOG_DATA) public data: { task: Task },
-  ) {
-  }
+  ) {}
 
   ngOnInit(): void {
     if (this.isEdit && this.task.repeatCfgId) {
-      this._subs.add(this._taskRepeatCfgService.getTaskRepeatCfgById$(this.task.repeatCfgId).subscribe((cfg) => {
-        this.taskRepeatCfg = cfg;
-        this._cd.detectChanges();
-      }));
+      this._subs.add(
+        this._taskRepeatCfgService
+          .getTaskRepeatCfgById$(this.task.repeatCfgId)
+          .subscribe((cfg) => {
+            this.taskRepeatCfg = cfg;
+            this._cd.detectChanges();
+          }),
+      );
     }
   }
 
@@ -64,16 +76,25 @@ export class DialogEditTaskRepeatCfgComponent implements OnInit, OnDestroy {
 
   save() {
     if (this.isEdit) {
-      this._taskRepeatCfgService.updateTaskRepeatCfg(exists(this.taskRepeatCfgId), this.taskRepeatCfg);
+      this._taskRepeatCfgService.updateTaskRepeatCfg(
+        exists(this.taskRepeatCfgId),
+        this.taskRepeatCfg,
+      );
       this.close();
     } else {
-      this._taskRepeatCfgService.addTaskRepeatCfgToTask(this.task.id, this.task.projectId, this.taskRepeatCfg);
+      this._taskRepeatCfgService.addTaskRepeatCfgToTask(
+        this.task.id,
+        this.task.projectId,
+        this.taskRepeatCfg,
+      );
       this.close();
     }
   }
 
   remove() {
-    this._taskRepeatCfgService.deleteTaskRepeatCfgWithDialog(exists(this.task.repeatCfgId));
+    this._taskRepeatCfgService.deleteTaskRepeatCfgWithDialog(
+      exists(this.task.repeatCfgId),
+    );
     this.close();
   }
 
@@ -86,12 +107,12 @@ export class DialogEditTaskRepeatCfgComponent implements OnInit, OnDestroy {
   }
 
   addNewTag(title: string) {
-    const id = this._tagService.addTag({title});
+    const id = this._tagService.addTag({ title });
     this._updateTags(unique([...this.taskRepeatCfg.tagIds, id]));
   }
 
   removeTag(id: string) {
-    const updatedTagIds = this.taskRepeatCfg.tagIds.filter(tagId => tagId !== id);
+    const updatedTagIds = this.taskRepeatCfg.tagIds.filter((tagId) => tagId !== id);
     this._updateTags(updatedTagIds);
   }
 

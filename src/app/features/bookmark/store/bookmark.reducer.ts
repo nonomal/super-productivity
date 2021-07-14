@@ -6,7 +6,7 @@ import {
   DeleteBookmark,
   LoadBookmarkState,
   ReorderBookmarks,
-  UpdateBookmark
+  UpdateBookmark,
 } from './bookmark.actions';
 import { Bookmark } from '../bookmark.model';
 import { createFeatureSelector, createSelector } from '@ngrx/store';
@@ -19,20 +19,25 @@ export interface BookmarkState extends EntityState<Bookmark> {
 }
 
 export const adapter: EntityAdapter<Bookmark> = createEntityAdapter<Bookmark>();
-export const selectBookmarkFeatureState = createFeatureSelector<BookmarkState>(BOOKMARK_FEATURE_NAME);
-export const {selectIds, selectEntities, selectAll, selectTotal} = adapter.getSelectors();
+export const selectBookmarkFeatureState =
+  createFeatureSelector<BookmarkState>(BOOKMARK_FEATURE_NAME);
+export const { selectIds, selectEntities, selectAll, selectTotal } =
+  adapter.getSelectors();
 export const selectAllBookmarks = createSelector(selectBookmarkFeatureState, selectAll);
-export const selectIsShowBookmarkBar = createSelector(selectBookmarkFeatureState, state => state.isShowBookmarks);
+export const selectIsShowBookmarkBar = createSelector(
+  selectBookmarkFeatureState,
+  (state) => state.isShowBookmarks,
+);
 
 export const initialBookmarkState: BookmarkState = adapter.getInitialState({
   // additional entity state properties
-  isShowBookmarks: false
+  isShowBookmarks: false,
 });
 
-export function bookmarkReducer(
+export const bookmarkReducer = (
   state: BookmarkState = initialBookmarkState,
-  action: BookmarkActions
-): BookmarkState {
+  action: BookmarkActions,
+): BookmarkState => {
   switch (action.type) {
     case BookmarkActionTypes.AddBookmark: {
       return adapter.addOne((action as AddBookmark).payload.bookmark, state);
@@ -47,16 +52,16 @@ export function bookmarkReducer(
     }
 
     case BookmarkActionTypes.LoadBookmarkState:
-      return {...(action as LoadBookmarkState).payload.state};
+      return { ...(action as LoadBookmarkState).payload.state };
 
     case BookmarkActionTypes.ShowBookmarks:
-      return {...state, isShowBookmarks: true};
+      return { ...state, isShowBookmarks: true };
 
     case BookmarkActionTypes.HideBookmarks:
-      return {...state, isShowBookmarks: false};
+      return { ...state, isShowBookmarks: false };
 
     case BookmarkActionTypes.ToggleBookmarks:
-      return {...state, isShowBookmarks: !state.isShowBookmarks};
+      return { ...state, isShowBookmarks: !state.isShowBookmarks };
 
     case BookmarkActionTypes.ReorderBookmarks: {
       const oldIds = state.ids as string[];
@@ -67,7 +72,7 @@ export function bookmarkReducer(
 
       // check if we have the same values inside the arrays
       if (oldIds.slice(0).sort().join(',') === newIds.slice(0).sort().join(',')) {
-        return {...state, ids: newIds};
+        return { ...state, ids: newIds };
       } else {
         console.error('Bookmark lost while reordering. Not executing reorder');
         return state;
@@ -78,6 +83,4 @@ export function bookmarkReducer(
       return state;
     }
   }
-}
-
-
+};

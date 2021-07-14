@@ -1,39 +1,32 @@
 {
   "root": true,
-  "ignorePatterns": [
-    "projects/**/*"
-  ],
+  "ignorePatterns": ["projects/**/*"],
   "overrides": [
     {
-      "files": [
-        "*.ts"
-      ],
+      "files": ["*.ts"],
       "parserOptions": {
-        "project": [
-          "tsconfig.json",
-          "e2e/tsconfig.e2e.json"
-        ],
+        "project": ["tsconfig.json", "e2e/tsconfig.e2e.json"],
         "createDefaultProgram": true
       },
       "extends": [
         "plugin:@angular-eslint/ng-cli-compat",
         "plugin:@angular-eslint/ng-cli-compat--formatting-add-on",
-        "plugin:@angular-eslint/template/process-inline-templates"
+        "plugin:@angular-eslint/template/process-inline-templates",
+        "prettier"
       ],
+      "plugins": ["prettier", "unused-imports"],
       "rules": {
-        "@angular-eslint/component-selector": [
-          "off"
-        ],
+        "prettier/prettier": "error",
+        "@angular-eslint/component-selector": ["off"],
+        "no-unused-vars": [2, { "args": "none" }],
+        "unused-imports/no-unused-imports": "error",
         "@typescript-eslint/explicit-member-accessibility": [
           "off",
           {
             "accessibility": "explicit"
           }
         ],
-        "arrow-parens": [
-          "off",
-          "always"
-        ],
+        "arrow-parens": ["off", "always"],
         "import/order": "off",
         "@typescript-eslint/member-ordering": "off",
         "@typescript-eslint/no-inferrable-types": "off",
@@ -44,38 +37,23 @@
           "error",
           {
             "selector": "default",
-            "format": [
-              "camelCase",
-              "snake_case",
-              "UPPER_CASE",
-              "PascalCase"
-            ],
+            "format": ["camelCase", "snake_case", "UPPER_CASE", "PascalCase"],
             "leadingUnderscore": "allowSingleOrDouble",
             "trailingUnderscore": "allow"
           },
           {
             "selector": "variable",
-            "format": [
-              "camelCase",
-              "snake_case",
-              "UPPER_CASE",
-              "PascalCase"
-            ],
+            "format": ["camelCase", "snake_case", "UPPER_CASE", "PascalCase"],
             "leadingUnderscore": "allowSingleOrDouble",
             "trailingUnderscore": "allow"
           },
           {
             "selector": "enum",
-            "format": [
-              "PascalCase",
-              "UPPER_CASE"
-            ]
+            "format": ["PascalCase", "UPPER_CASE"]
           },
           {
             "selector": "typeLike",
-            "format": [
-              "PascalCase"
-            ]
+            "format": ["PascalCase"]
           }
         ],
         "prefer-const": "error",
@@ -87,6 +65,7 @@
             "ignorePattern": "^import \\{.+;$",
             "ignoreRegExpLiterals": true,
             "ignoreStrings": true,
+            "ignoreUrls": true,
             "code": 150
           }
         ],
@@ -94,7 +73,10 @@
         "@typescript-eslint/member-delimiter-style": "error",
         "no-shadow": "off",
         "@typescript-eslint/no-shadow": ["error"],
-        "prefer-arrow/prefer-arrow-functions": "off",
+        "comma-dangle": ["error", "always-multiline"],
+        "no-mixed-operators": "error",
+
+        "prefer-arrow/prefer-arrow-functions": "error",
         "@angular-eslint/directive-selector": [
           "error",
           {
@@ -107,14 +89,12 @@
       }
     },
     {
-      "files": [
-        "*.html"
-      ],
-      "extends": [
-        "plugin:@angular-eslint/template/recommended"
-      ],
+      "files": ["*.html"],
+      "extends": ["plugin:@angular-eslint/template/recommended", "prettier"],
+      "plugins": ["prettier"],
       "rules": {
-        "@angular-eslint/template/no-negated-async": "off"
+        "@angular-eslint/template/no-negated-async": "off",
+        "prettier/prettier": "error"
       }
     }
   ]

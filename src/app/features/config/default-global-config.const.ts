@@ -2,12 +2,17 @@ import { GlobalConfigState } from './global-config.model';
 import { IS_MAC } from '../../util/is-mac';
 import { IS_F_DROID_APP } from '../../util/is-android-web-view';
 
-export const IS_USE_DARK_THEME_AS_DEFAULT: boolean = !IS_MAC || !window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches;
+export const IS_USE_DARK_THEME_AS_DEFAULT: boolean =
+  !IS_MAC ||
+  !window.matchMedia ||
+  window.matchMedia('(prefers-color-scheme: dark)').matches;
 
 const minute = 60 * 1000;
+
+export const DEFAULT_DAY_START = '9:00';
 export const DEFAULT_GLOBAL_CONFIG: GlobalConfigState = {
   lang: {
-    lng: null
+    lng: null,
   },
   misc: {
     isDarkMode: IS_USE_DARK_THEME_AS_DEFAULT,
@@ -43,8 +48,10 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfigState = {
     isLockScreen: false,
     isFocusWindow: false,
     /* eslint-disable-next-line */
-    takeABreakMessage: 'Take a break! You have been working for ${duration} without one. Go away from the computer! Take a short walk! Makes you more productive in the long run!',
+    takeABreakMessage:
+      'Take a break! You have been working for ${duration} without one. Go away from the computer! Take a short walk! Makes you more productive in the long run!',
     takeABreakMinWorkingTime: 60 * minute,
+    takeABreakSnoozeTime: 15 * minute,
     motivationalImg: null,
   },
   pomodoro: {
@@ -71,10 +78,12 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfigState = {
     openProjectNotes: 'Shift+N',
     toggleSideNav: 'Shift+D',
     showHelp: '?',
+    showSearchBar: 'Shift+F',
     toggleBookmarks: 'Shift+V',
     toggleBacklog: 'b',
     goToWorkView: 'w',
     goToScheduledView: 'Shift+S',
+    goToTimeline: 'Shift+T',
     // goToDailyAgenda: null,
     // goToFocusMode: 'Shift+F',
     goToSettings: null,
@@ -115,6 +124,11 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfigState = {
     isShowOnMobile: false,
     minTime: minute * 2,
   },
+  timeline: {
+    isWorkStartEndEnabled: true,
+    workStart: DEFAULT_DAY_START,
+    workEnd: '17:00',
+  },
 
   sync: {
     isEnabled: false,
@@ -122,8 +136,6 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfigState = {
     syncInterval: minute,
 
     dropboxSync: {
-      // TODO remove / migrate
-      authCode: null,
       accessToken: null,
       // isCompressData: true,
     },
@@ -141,6 +153,6 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfigState = {
       userName: null,
       password: null,
       syncFilePath: null,
-    }
+    },
   },
 };

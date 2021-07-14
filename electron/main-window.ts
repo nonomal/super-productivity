@@ -7,14 +7,15 @@ import {
   Menu,
   MenuItemConstructorOptions,
   MessageBoxReturnValue,
-  shell
+  shell,
 } from 'electron';
-import { errorHandler } from './error-handler';
+import { errorHandlerWithFrontendInform } from './error-handler-with-frontend-inform';
 import { join, normalize } from 'path';
 import { format } from 'url';
 import { IPC } from './ipc-events.const';
 import { getSettings } from './get-settings';
 import { readFileSync, stat } from 'fs';
+import { error, log } from 'electron-log';
 
 let mainWin: BrowserWindow;
 
@@ -23,7 +24,7 @@ const mainWinModule: {
   isAppReady: boolean;
 } = {
   win: undefined,
-  isAppReady: false
+  isAppReady: false,
 };
 
 export const getWin = (): BrowserWindow => {
@@ -54,7 +55,7 @@ export const createWindow = ({
 }): BrowserWindow => {
   // make sure the main window isn't already created
   if (mainWin) {
-    errorHandler('Main window already exists');
+    errorHandlerWithFrontendInform('Main window already exists');
     return mainWin;
   }
 
@@ -65,7 +66,7 @@ export const createWindow = ({
 
   const mainWindowState = windowStateKeeper({
     defaultWidth: 800,
-    defaultHeight: 800
+    defaultHeight: 800,
   });
 
   mainWin = new BrowserWindow({
@@ -81,18 +82,18 @@ export const createWindow = ({
       nodeIntegration: true,
       // make remote module work with those two settings
       enableRemoteModule: true,
-      contextIsolation: false
+      contextIsolation: false,
     },
-    icon: ICONS_FOLDER + '/icon_256x256.png'
+    icon: ICONS_FOLDER + '/icon_256x256.png',
   });
 
   mainWindowState.manage(mainWin);
 
   const url = customUrl
     ? customUrl
-    : (IS_DEV)
-      ? 'http://localhost:4200'
-      : format({
+    : IS_DEV
+    ? 'http://localhost:4200'
+    : format({
         pathname: normalize(join(__dirname, '../dist/index.html')),
         protocol: 'file:',
         slashes: true,
@@ -103,11 +104,11 @@ export const createWindow = ({
     const CSS_FILE_PATH = app.getPath('userData') + '/styles.css';
     stat(app.getPath('userData') + '/styles.css', (err) => {
       if (err) {
-        console.log('No custom styles detected at ' + CSS_FILE_PATH);
+        log('No custom styles detected at ' + CSS_FILE_PATH);
       } else {
-        console.log('Loading custom styles from ' + CSS_FILE_PATH);
-        const styles = readFileSync(CSS_FILE_PATH, {encoding: 'utf8'});
-        mainWin.webContents.insertCSS(styles).then(console.log).catch(console.error);
+        log('Loading custom styles from ' + CSS_FILE_PATH);
+        const styles = readFileSync(CSS_FILE_PATH, { encoding: 'utf8' });
+        mainWin.webContents.insertCSS(styles).then(log).catch(error);
       }
     });
   });
@@ -137,13 +138,13 @@ export const createWindow = ({
   return mainWin;
 };
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function initWinEventListeners(app: any) {
   const handleRedirect = (event, url) => {
     event.preventDefault();
     // needed for mac; especially for jira urls we might have a host like this www.host.de//
     const urlObj = new URL(url);
-    urlObj.pathname = urlObj.pathname
-      .replace('//', '/');
+    urlObj.pathname = urlObj.pathname.replace('//', '/');
     const wellFormedUrl = urlObj.toString();
     const wasOpened = shell.openExternal(wellFormedUrl);
     if (!wasOpened) {
@@ -160,29 +161,33 @@ function initWinEventListeners(app: any) {
   appMinimizeHandler(app);
 }
 
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
 function createMenu(quitApp) {
   // Create application menu to enable copy & pasting on MacOS
-  const menuTpl = [{
-    label: 'Application',
-    submenu: [
-      {label: 'About Super Productivity', selector: 'orderFrontStandardAboutPanel:'},
-      {type: 'separator'},
-      {
-        label: 'Quit', click: quitApp
-      }
-    ]
-  }, {
-    label: 'Edit',
-    submenu: [
-      {label: 'Undo', accelerator: 'CmdOrCtrl+Z', selector: 'undo:'},
-      {label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', selector: 'redo:'},
-      {type: 'separator'},
-      {label: 'Cut', accelerator: 'CmdOrCtrl+X', selector: 'cut:'},
-      {label: 'Copy', accelerator: 'CmdOrCtrl+C', selector: 'copy:'},
-      {label: 'Paste', accelerator: 'CmdOrCtrl+V', selector: 'paste:'},
-      {label: 'Select All', accelerator: 'CmdOrCtrl+A', selector: 'selectAll:'}
-    ]
-  }
+  const menuTpl = [
+    {
+      label: 'Application',
+      submenu: [
+        { label: 'About Super Productivity', selector: 'orderFrontStandardAboutPanel:' },
+        { type: 'separator' },
+        {
+          label: 'Quit',
+          click: quitApp,
+        },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', selector: 'undo:' },
+        { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', selector: 'redo:' },
+        { type: 'separator' },
+        { label: 'Cut', accelerator: 'CmdOrCtrl+X', selector: 'cut:' },
+        { label: 'Copy', accelerator: 'CmdOrCtrl+C', selector: 'copy:' },
+        { label: 'Paste', accelerator: 'CmdOrCtrl+V', selector: 'paste:' },
+        { label: 'Select All', accelerator: 'CmdOrCtrl+A', selector: 'selectAll:' },
+      ],
+    },
   ];
   const menuTplOUT = menuTpl as MenuItemConstructorOptions[];
 
@@ -191,9 +196,7 @@ function createMenu(quitApp) {
 }
 
 // TODO this is ugly as f+ck
-const appCloseHandler = (
-  app: App,
-) => {
+const appCloseHandler = (app: App) => {
   let ids: string[] = [];
 
   const _quitApp = () => {
@@ -201,15 +204,15 @@ const appCloseHandler = (
     mainWin.close();
   };
 
-  ipcMain.on(IPC.REGISTER_BEFORE_CLOSE, (ev, {id}) => {
+  ipcMain.on(IPC.REGISTER_BEFORE_CLOSE, (ev, { id }) => {
     ids.push(id);
   });
-  ipcMain.on(IPC.UNREGISTER_BEFORE_CLOSE, (ev, {id}) => {
-    ids = ids.filter(idIn => idIn !== id);
+  ipcMain.on(IPC.UNREGISTER_BEFORE_CLOSE, (ev, { id }) => {
+    ids = ids.filter((idIn) => idIn !== id);
   });
-  ipcMain.on(IPC.BEFORE_CLOSE_DONE, (ev, {id}) => {
-    ids = ids.filter(idIn => idIn !== id);
-    console.log(IPC.BEFORE_CLOSE_DONE, id, ids);
+  ipcMain.on(IPC.BEFORE_CLOSE_DONE, (ev, { id }) => {
+    ids = ids.filter((idIn) => idIn !== id);
+    log(IPC.BEFORE_CLOSE_DONE, id, ids);
     if (ids.length === 0) {
       mainWin.close();
     }
@@ -217,45 +220,45 @@ const appCloseHandler = (
 
   mainWin.on('close', (event) => {
     // NOTE: this might not work if we run a second instance of the app
-    console.log('close, isQuiting:', (app as any).isQuiting);
+    log('close, isQuiting:', (app as any).isQuiting);
     if (!(app as any).isQuiting) {
       event.preventDefault();
-      if (ids.length > 0) {
-        console.log('Actions to wait for ', ids);
-        mainWin.webContents.send(IPC.NOTIFY_ON_CLOSE, ids);
-      } else {
-        getSettings(mainWin, (appCfg) => {
-          if (appCfg && appCfg.misc.isMinimizeToTray && !(app as any).isQuiting) {
-            mainWin.hide();
-            return;
-          }
+      getSettings(mainWin, (appCfg) => {
+        if (appCfg && appCfg.misc.isMinimizeToTray && !(app as any).isQuiting) {
+          mainWin.hide();
+          return;
+        }
+
+        if (ids.length > 0) {
+          log('Actions to wait for ', ids);
+          mainWin.webContents.send(IPC.NOTIFY_ON_CLOSE, ids);
+        } else {
           if (appCfg && appCfg.misc.isConfirmBeforeExit && !(app as any).isQuiting) {
-            dialog.showMessageBox(mainWin,
-              {
+            dialog
+              .showMessageBox(mainWin, {
                 type: 'question',
                 buttons: ['Yes', 'No'],
                 title: 'Confirm',
-                message: 'Are you sure you want to quit?'
-              }).then((choice: MessageBoxReturnValue) => {
-              if (choice.response === 1) {
-                return;
-              } else if (choice.response === 0) {
-                _quitApp();
-                return;
-              }
-            });
+                message: 'Are you sure you want to quit?',
+              })
+              .then((choice: MessageBoxReturnValue) => {
+                if (choice.response === 1) {
+                  return;
+                } else if (choice.response === 0) {
+                  _quitApp();
+                  return;
+                }
+              });
           } else {
             _quitApp();
           }
-        });
-      }
+        }
+      });
     }
   });
 };
 
-const appMinimizeHandler = (
-  app: App,
-) => {
+const appMinimizeHandler = (app: App) => {
   if (!(app as any).isQuiting) {
     mainWin.on('minimize', (event) => {
       getSettings(mainWin, (appCfg) => {

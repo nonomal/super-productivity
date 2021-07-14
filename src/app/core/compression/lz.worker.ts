@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import * as LZString from 'lz-string';
 
-function handleData(msgData: any) {
+const handleData = (msgData: any) => {
   switch (msgData.type) {
     case 'COMPRESS':
       return LZString.compress(msgData.strToHandle);
@@ -16,9 +16,9 @@ function handleData(msgData: any) {
     default:
       throw new Error('Invalid type');
   }
-}
+};
 
-addEventListener('message', ({data}) => {
+addEventListener('message', ({ data }) => {
   try {
     const strToHandle = handleData(data);
     postMessage({
