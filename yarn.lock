@@ -5077,10 +5077,10 @@ electron-localshortcut@^3.1.0:
     keyboardevent-from-electron-accelerator "^2.0.0"
     keyboardevents-areequal "^0.2.1"
 
-electron-log@^4.2.4:
-  version "4.3.1"
-  resolved "https://registry.yarnpkg.com/electron-log/-/electron-log-4.3.1.tgz#1405fef9d4e6964a5fdb8790a69163aa237ffe91"
-  integrity sha512-S/0CMjYjgyWUsZ3d27VvErPaI5W4oILp4jfeCuN4DhDqrJW6jKRUD2PxFfTdeZEIjM7+fttGg7A61rPcAcZC1w==
+electron-log@^4.4.5:
+  version "4.4.5"
+  resolved "https://registry.yarnpkg.com/electron-log/-/electron-log-4.4.5.tgz#5fcfd0c2dc5fbda915ee0a9d802705dc57930786"
+  integrity sha512-Cfa2CKnwBhlUfIl/qr2GF5SCqfoA9yPBqTJ6/wPs+PEn36M2+EZ3RpGSaOhYQ1BZpolL1CWyeu3gMG8epLl3Ng==
 
 electron-notarize@^0.2.0:
   version "0.2.1"
