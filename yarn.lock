@@ -12903,10 +12903,10 @@ util@^0.11.0:
   dependencies:
     inherits "2.0.3"
 
-utils-decorators@^1.7.1:
-  version "1.8.0"
-  resolved "https://registry.yarnpkg.com/utils-decorators/-/utils-decorators-1.8.0.tgz#6897ce2e57b4a92b18c37fa1a3926f170edbfaa8"
-  integrity sha512-anKv6Zkebhfyh6exTg3mgvKRYA9fDLkRDbIvbs15m5ridTq0uKqsiBwr222BtJToXNImCJzwkN00F7vL4aKldg==
+utils-decorators@^2.0.2:
+  version "2.0.2"
+  resolved "https://registry.yarnpkg.com/utils-decorators/-/utils-decorators-2.0.2.tgz#3c70e0898e05e39144767304584cdcd4588e0004"
+  integrity sha512-TQUA9pRPGyg4bpsqeGmwe1X8BIhe2t+GEACrcgXn3OJMOdvb1pK/ry2DZJgLoYezpkcduB8h8ULmNfYtdk3MoA==
   dependencies:
     tinyqueue "^2.0.3"
 
