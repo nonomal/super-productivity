@@ -1,3 +1,6 @@
+// CHECK SWAGGER EXPORT IF MORE ARE NEEDED!!!
+/* eslint-disable @typescript-eslint/naming-convention */
+
 // Standard API responses
 export type JiraOriginalComponent = Readonly<{
   self: string;
@@ -31,11 +34,11 @@ export interface JiraOriginalUser extends JiraOriginalAuthor {
   expand: string;
   locale: string;
   groups: {
-    items: any[];
+    items: unknown[];
     size: number;
   };
   applicationRoles: {
-    items: any[];
+    items: unknown[];
     size: number;
   };
 }
@@ -51,6 +54,29 @@ export type JiraOriginalAttachment = Readonly<{
   content: string;
   thumbnail?: string;
 }>;
+
+export interface JiraOriginalIssueLinkType {
+  id?: string;
+  name?: string;
+  inward?: string;
+  outward?: string;
+  readonly self?: string;
+}
+
+export interface JiraOriginalLinkedIssue {
+  id: string;
+  key: string;
+  readonly self: string;
+  readonly fields: JiraOriginalFields;
+}
+
+export interface JiraOriginalIssueLink {
+  readonly id?: string;
+  readonly self?: string;
+  type: JiraOriginalIssueLinkType;
+  inwardIssue?: JiraOriginalLinkedIssue;
+  outwardIssue?: JiraOriginalLinkedIssue;
+}
 
 export type JiraOriginalComment = Readonly<{
   self: string;
@@ -80,6 +106,13 @@ export type JiraOriginalStatus = Readonly<{
   statusCategory: JiraOriginalCategory;
 }>;
 
+export type JiraOriginalPriority = Readonly<{
+  self: string;
+  id: string;
+  iconUrl: string;
+  name: string;
+}>;
+
 export type JiraOriginalFields = Readonly<{
   summary: string;
   components: JiraOriginalComponent[];
@@ -87,6 +120,7 @@ export type JiraOriginalFields = Readonly<{
   timeestimate: number;
   timespent: number;
   description: string | null;
+  subtasks?: JiraIssueOriginalSubtask[];
   comment?: {
     comments: JiraOriginalComment[];
     maxResults: number;
@@ -96,6 +130,8 @@ export type JiraOriginalFields = Readonly<{
   assignee: JiraOriginalAuthor;
   updated: string;
   status: JiraOriginalStatus;
+  priority?: JiraOriginalPriority | null;
+  issuelinks: JiraOriginalIssueLink[];
 }>;
 
 // export type JiraIssueOriginalReduced = Readonly<{
@@ -116,9 +152,9 @@ export type JiraOriginalChangelog = Readonly<{
       field: string;
       fieldId: string;
       fieldtype: string;
-      from: any;
+      from: string | number | null;
       fromString: string;
-      to: any;
+      to: string | number | null;
       toString: string;
     }[];
   }[];
@@ -138,16 +174,16 @@ export type JiraOriginalTransition = Readonly<{
     id: string;
     statusCategory: {
       self: string;
-      id: 2;
+      id: number;
       key: string;
       colorName: string;
       name: string;
     };
   };
-  hasScreen: false;
-  isGlobal: true;
-  isInitial: false;
-  isConditional: false;
+  hasScreen: boolean;
+  isGlobal: boolean;
+  isInitial: boolean;
+  isConditional: boolean;
   fields: Record<string, unknown>;
 }>;
 
@@ -158,4 +194,50 @@ export type JiraIssueOriginal = Readonly<{
   self: string;
   fields: JiraOriginalFields;
   changelog?: JiraOriginalChangelog;
+}>;
+
+export type JiraIssueOriginalSubtask = Omit<
+  JiraIssueOriginal,
+  'expand' | 'changelog' | 'subtasks'
+>;
+
+// Issue picker result (different shape from JiraIssueOriginal)
+export interface JiraPickerIssue {
+  key: string;
+  summary: string; // HTML-highlighted
+  summaryText: string; // plain text
+  id?: string;
+  img?: string;
+  [key: string]: unknown;
+}
+
+// API envelope types for Jira responses
+
+export interface JiraApiEnvelope<T = unknown> {
+  response: T;
+  requestId?: string;
+  error?: {
+    statusCode?: number;
+    status?: number;
+    message?: string;
+    errorMessages?: string[];
+  };
+}
+
+export type JiraPickerSearchEnvelope = JiraApiEnvelope<{
+  sections: Array<{ issues: JiraPickerIssue[] }>;
+}>;
+
+export type JiraJQLSearchEnvelope = JiraApiEnvelope<{
+  issues: JiraPickerIssue[];
+}>;
+
+export type JiraIssuesEnvelope = JiraApiEnvelope<{
+  issues: JiraIssueOriginal[];
+}>;
+
+export type JiraIssueEnvelope = JiraApiEnvelope<JiraIssueOriginal>;
+
+export type JiraTransitionsEnvelope = JiraApiEnvelope<{
+  transitions: JiraOriginalTransition[];
 }>;

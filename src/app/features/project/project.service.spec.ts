@@ -1,12 +1,952 @@
-// import { TestBed } from '@angular/core/testing';
-//
-// import { ProjectService } from './project.service';
-//
-// describe('ProjectService', () => {
-//   beforeEach(() => TestBed.configureTestingModule({}));
-//
-//   it('should be created', () => {
-//     const service: ProjectService = TestBed.inject(ProjectService);
-//     expect(service).toBeTruthy();
-//   });
-// });
+import { fakeAsync, TestBed, tick } from '@angular/core/testing';
+import { ProjectService } from './project.service';
+import { MockStore, provideMockStore } from '@ngrx/store/testing';
+import { MatDialog } from '@angular/material/dialog';
+import { selectTaskFeatureState } from '../tasks/store/task.selectors';
+import { Task, TaskState } from '../tasks/task.model';
+import { TaskService } from '../tasks/task.service';
+import { Action, Store, StoreModule } from '@ngrx/store';
+import { createProject } from './project.test-helper';
+import { EMPTY, of } from 'rxjs';
+import { createTask } from '../tasks/task.test-helper';
+import { TranslateService } from '@ngx-translate/core';
+import { WorkContextService } from '../work-context/work-context.service';
+import { SnackService } from '../../core/snack/snack.service';
+import { TaskRepeatCfgService } from '../task-repeat-cfg/task-repeat-cfg.service';
+import { TimeTrackingService } from '../time-tracking/time-tracking.service';
+import { provideMockActions } from '@ngrx/effects/testing';
+import { WorkContextType } from '../work-context/work-context.model';
+import { T } from '../../t.const';
+import { selectNoteFeatureState } from '../note/store/note.reducer';
+import { NoteState } from '../note/note.model';
+import { selectSectionFeatureState } from '../section/store/section.selectors';
+import { SectionState } from '../section/section.model';
+import { DateService } from '../../core/date/date.service';
+import {
+  selectUnarchivedProjects,
+  selectUnarchivedProjectsWithoutCurrent,
+} from './store/project.selectors';
+import { selectMenuTreeProjectTree } from '../menu-tree/store/menu-tree.selectors';
+import { MenuTreeKind } from '../menu-tree/store/menu-tree.model';
+import { menuTreeFeatureKey } from '../menu-tree/store/menu-tree.reducer';
+import { TaskTimeSyncService } from '../tasks/task-time-sync.service';
+import { selectAllTaskRepeatCfgs } from '../task-repeat-cfg/store/task-repeat-cfg.selectors';
+import {
+  DEFAULT_TASK_REPEAT_CFG,
+  TaskRepeatCfg,
+} from '../task-repeat-cfg/task-repeat-cfg.model';
+import { upsertTaskRepeatCfg } from '../task-repeat-cfg/store/task-repeat-cfg.actions';
+import { TaskSharedActions } from '../../root-store/meta/task-shared.actions';
+
+describe('ProjectService', () => {
+  let service: ProjectService;
+  let store: MockStore;
+  let taskService: jasmine.SpyObj<TaskService>;
+  let snackService: jasmine.SpyObj<SnackService>;
+  let workContextService: jasmine.SpyObj<WorkContextService>;
+  let timeTrackingService: jasmine.SpyObj<TimeTrackingService>;
+  let taskTimeSync: jasmine.SpyObj<TaskTimeSyncService>;
+
+  /* eslint-disable @typescript-eslint/naming-convention */
+  const initialTaskState: TaskState = {
+    ids: ['task-1', 'task-2', 'sub-task-1'],
+    entities: {
+      'task-1': createTask({
+        id: 'task-1',
+        title: 'Task 1',
+        subTaskIds: ['sub-task-1'],
+        projectId: 'project-1',
+      }),
+      'task-2': createTask({
+        id: 'task-2',
+        title: 'Task 2',
+        subTaskIds: [],
+        projectId: 'project-1',
+      }),
+      'sub-task-1': createTask({
+        id: 'sub-task-1',
+        title: 'Sub Task 1',
+        subTaskIds: [],
+        parentId: 'task-1',
+        projectId: 'project-1',
+      }),
+    },
+    currentTaskId: null,
+    selectedTaskId: null,
+    isDataLoaded: true,
+    lastCurrentTaskId: null,
+  };
+
+  const initialNoteState: NoteState = {
+    ids: ['note-1', 'note-2'],
+    entities: {
+      'note-1': {
+        id: 'note-1',
+        projectId: 'project-1',
+        isPinnedToToday: false,
+        content: 'Note 1 content',
+        created: Date.now(),
+        modified: Date.now(),
+      },
+      'note-2': {
+        id: 'note-2',
+        projectId: 'project-1',
+        isPinnedToToday: true,
+        content: 'Note 2 content',
+        created: Date.now(),
+        modified: Date.now(),
+      },
+    },
+    todayOrder: [],
+  };
+
+  const initialSectionState: SectionState = {
+    ids: ['section-1', 'section-2', 'section-other', 'section-today'],
+    entities: {
+      'section-1': {
+        id: 'section-1',
+        contextId: 'project-1',
+        contextType: WorkContextType.PROJECT,
+        title: 'Section 1',
+        isExpanded: true,
+        taskIds: ['task-1'],
+      },
+      'section-2': {
+        id: 'section-2',
+        contextId: 'project-1',
+        contextType: WorkContextType.PROJECT,
+        title: 'Section 2',
+        isExpanded: true,
+        taskIds: ['task-2'],
+      },
+      // Foreign-context sections must NOT be copied when duplicating project-1
+      'section-other': {
+        id: 'section-other',
+        contextId: 'project-2',
+        contextType: WorkContextType.PROJECT,
+        title: 'Other Project Section',
+        isExpanded: true,
+        taskIds: [],
+      },
+      'section-today': {
+        id: 'section-today',
+        contextId: 'TODAY',
+        contextType: WorkContextType.TAG,
+        title: 'Today Section',
+        isExpanded: true,
+        taskIds: [],
+      },
+    },
+  };
+  /* eslint-enable @typescript-eslint/naming-convention */
+
+  beforeEach(() => {
+    let taskCounter = 0;
+    taskService = jasmine.createSpyObj('TaskService', [
+      'add',
+      'createNewTaskWithDefaults',
+      'getByIdWithSubTaskData$',
+      'moveToProject',
+      'setDone',
+      'setUnDone',
+      'getAllTasksForProject',
+    ]);
+    taskTimeSync = jasmine.createSpyObj('TaskTimeSyncService', ['clearOne']);
+    taskService.createNewTaskWithDefaults.and.callFake(() => {
+      taskCounter++;
+      return createTask({
+        id: `new-task-${taskCounter}`,
+        title: `New Task ${taskCounter}`,
+      });
+    });
+    taskService.getAllTasksForProject.and.callFake((projectId: string) =>
+      Promise.resolve(
+        Object.values(initialTaskState.entities).filter(
+          (task): task is Task => task?.projectId === projectId,
+        ),
+      ),
+    );
+    workContextService = jasmine.createSpyObj('WorkContextService', [
+      'getWorkContextById$',
+      'onWorkContextChange$',
+      'activeWorkContext$',
+      'activeWorkContextTypeAndId$',
+    ]);
+    timeTrackingService = jasmine.createSpyObj('TimeTrackingService', ['state$']);
+
+    TestBed.configureTestingModule({
+      imports: [StoreModule.forRoot({})],
+      providers: [
+        ProjectService,
+        provideMockStore({
+          initialState: {
+            projects: {
+              ids: ['project-1', 'project-2'],
+              entities: {
+                /* eslint-disable @typescript-eslint/naming-convention */
+                'project-1': createProject({ id: 'project-1', title: 'Project 1' }),
+                'project-2': createProject({ id: 'project-2', title: 'Project 2' }),
+                /* eslint-enable @typescript-eslint/naming-convention */
+              },
+            },
+            [menuTreeFeatureKey]: {
+              projectTree: [],
+              tagTree: [],
+            },
+          },
+        }),
+        provideMockActions(() => EMPTY),
+        { provide: TaskService, useValue: taskService },
+        { provide: TaskTimeSyncService, useValue: taskTimeSync },
+        {
+          provide: TranslateService,
+          useValue: {
+            instant: (str: string) => {
+              if (str === T.GLOBAL.COPY_SUFFIX) {
+                return ' (copy)';
+              }
+              return str;
+            },
+          },
+        },
+        { provide: WorkContextService, useValue: workContextService },
+        {
+          provide: SnackService,
+          useValue: jasmine.createSpyObj('SnackService', ['open']),
+        },
+        {
+          provide: TaskRepeatCfgService,
+          useValue: { getTaskRepeatCfgsWithLabels$: () => of([]) },
+        },
+        { provide: TimeTrackingService, useValue: timeTrackingService },
+        {
+          provide: DateService,
+          useValue: {
+            todayStr: () => '2026-01-05',
+            getStartOfNextDayDiffMs: () => 0,
+          },
+        },
+        {
+          provide: MatDialog,
+          useValue: jasmine.createSpyObj('MatDialog', ['open']),
+        },
+      ],
+    });
+    workContextService.activeWorkContext$ = EMPTY;
+    workContextService.activeWorkContextTypeAndId$ = of({
+      activeId: 'project-1',
+      activeType: WorkContextType.PROJECT,
+    });
+    (timeTrackingService.state$ as any) = of({});
+    service = TestBed.inject(ProjectService);
+    snackService = TestBed.inject(SnackService) as jasmine.SpyObj<SnackService>;
+    store = TestBed.inject(Store) as MockStore<any>;
+    store.overrideSelector(selectTaskFeatureState, initialTaskState);
+    store.overrideSelector(selectNoteFeatureState, initialNoteState);
+    store.overrideSelector(selectSectionFeatureState, initialSectionState);
+    store.overrideSelector(selectAllTaskRepeatCfgs, []);
+  });
+
+  afterEach(() => {
+    // Reset selector mocks to prevent interference with other test files
+    store.resetSelectors();
+  });
+
+  describe('remove', () => {
+    it('should clear pending time for every task removed with the project', async () => {
+      const project = createProject({
+        id: 'project-1',
+        taskIds: ['task-1', 'task-2'],
+        backlogTaskIds: [],
+        noteIds: [],
+      });
+
+      await service.remove(project);
+
+      expect(taskTimeSync.clearOne.calls.allArgs()).toEqual([
+        ['task-1'],
+        ['task-2'],
+        ['sub-task-1'],
+      ]);
+    });
+  });
+
+  describe('tree order lists', () => {
+    it('should expose visible projects in menu tree order', (done) => {
+      const projects = [
+        createProject({ id: 'project-1', title: 'Project 1' }),
+        createProject({ id: 'project-2', title: 'Project 2' }),
+        createProject({ id: 'project-3', title: 'Project 3', isHiddenFromMenu: true }),
+        createProject({ id: 'project-4', title: 'Project 4' }),
+      ];
+      store.overrideSelector(selectUnarchivedProjects, projects);
+      store.overrideSelector(selectMenuTreeProjectTree, [
+        {
+          id: 'folder-1',
+          k: MenuTreeKind.FOLDER,
+          name: 'Folder 1',
+          children: [
+            {
+              id: 'project-2',
+              k: MenuTreeKind.PROJECT,
+            },
+            {
+              id: 'project-3',
+              k: MenuTreeKind.PROJECT,
+            },
+          ],
+        },
+        {
+          id: 'project-1',
+          k: MenuTreeKind.PROJECT,
+        },
+      ]);
+      store.refreshState();
+
+      expect(service.listInTreeOrderForUI().map((project) => project.id)).toEqual([
+        'project-2',
+        'project-1',
+        'project-4',
+      ]);
+      done();
+    });
+
+    it('should keep projects hidden from the menu in the unfiltered tree order list', (done) => {
+      const projects = [
+        createProject({ id: 'project-1', title: 'Project 1' }),
+        createProject({ id: 'project-2', title: 'Project 2' }),
+        createProject({ id: 'project-3', title: 'Project 3', isHiddenFromMenu: true }),
+        createProject({ id: 'project-4', title: 'Project 4' }),
+      ];
+      store.overrideSelector(selectUnarchivedProjects, projects);
+      store.overrideSelector(selectMenuTreeProjectTree, [
+        {
+          id: 'folder-1',
+          k: MenuTreeKind.FOLDER,
+          name: 'Folder 1',
+          children: [
+            {
+              id: 'project-2',
+              k: MenuTreeKind.PROJECT,
+            },
+            {
+              id: 'project-3',
+              k: MenuTreeKind.PROJECT,
+            },
+          ],
+        },
+        {
+          id: 'project-1',
+          k: MenuTreeKind.PROJECT,
+        },
+      ]);
+      store.refreshState();
+
+      // isHiddenFromMenu only governs menu presence, so project pickers that assign
+      // a project must still offer project-3.
+      expect(service.listInTreeOrder().map((project) => project.id)).toEqual([
+        'project-2',
+        'project-3',
+        'project-1',
+        'project-4',
+      ]);
+      done();
+    });
+
+    it('should expose move candidates in menu tree order while excluding the current project', (done) => {
+      const projects = [
+        createProject({ id: 'project-1', title: 'Project 1' }),
+        createProject({ id: 'project-2', title: 'Project 2' }),
+        createProject({ id: 'project-4', title: 'Project 4' }),
+      ];
+      store.overrideSelector(selectUnarchivedProjectsWithoutCurrent, projects);
+      store.overrideSelector(selectMenuTreeProjectTree, [
+        {
+          id: 'project-2',
+          k: MenuTreeKind.PROJECT,
+        },
+        {
+          id: 'project-1',
+          k: MenuTreeKind.PROJECT,
+        },
+      ]);
+      store.refreshState();
+
+      service.getProjectsWithoutIdInTreeOrder$('project-3').subscribe((result) => {
+        expect(result.map((project) => project.id)).toEqual([
+          'project-2',
+          'project-1',
+          'project-4',
+        ]);
+        done();
+      });
+    });
+  });
+
+  describe('duplicateProject', () => {
+    beforeEach(() => {
+      spyOn(service, 'add').and.callFake(() => 'new-project-id');
+    });
+
+    it('should copy project recurrences with independent ids and preserve their schedule history', async () => {
+      const cfg: TaskRepeatCfg = {
+        ...DEFAULT_TASK_REPEAT_CFG,
+        id: 'original-repeat',
+        projectId: 'project-1',
+        title: 'Every three days',
+        repeatCycle: 'DAILY',
+        repeatEvery: 3,
+        startDate: '2025-01-01',
+        lastTaskCreationDay: '2026-01-04',
+        deletedInstanceDates: ['2026-01-01'],
+        subTaskTemplates: [{ title: 'Recurring subtask', notes: 'Keep this' }],
+      };
+      store.overrideSelector(selectAllTaskRepeatCfgs, [cfg]);
+      spyOn(service, 'getByIdOnce$').and.returnValue(
+        of(createProject({ id: 'project-1' })),
+      );
+      const dispatch = spyOn(store, 'dispatch') as jasmine.Spy<(action: Action) => void>;
+
+      await service.duplicateProject('project-1');
+
+      const copies = dispatch.calls
+        .allArgs()
+        .map(([action]) => action)
+        .filter((action) => action.type === upsertTaskRepeatCfg.type) as ReturnType<
+        typeof upsertTaskRepeatCfg
+      >[];
+      expect(copies.length).toBe(1);
+      const copy = copies[0]?.taskRepeatCfg;
+      expect(copy?.id).not.toBe(cfg.id);
+      expect(copy).toEqual({
+        ...cfg,
+        id: jasmine.any(String),
+        projectId: 'new-project-id',
+      });
+      expect(JSON.parse(JSON.stringify(copies[0])).meta).toEqual({
+        isPersistent: true,
+        entityType: 'TASK_REPEAT_CFG',
+        entityId: copy?.id,
+        opType: 'CRT',
+      });
+      expect(cfg.projectId).toBe('project-1');
+    });
+
+    it('should link copied regular and backlog instances to one copied config', async () => {
+      const cfg: TaskRepeatCfg = {
+        ...DEFAULT_TASK_REPEAT_CFG,
+        id: 'original-repeat',
+        projectId: 'project-1',
+      };
+      store.overrideSelector(selectAllTaskRepeatCfgs, [cfg]);
+      const first = createTask({
+        id: 'task-1',
+        projectId: 'project-1',
+        repeatCfgId: cfg.id,
+        created: new Date(2026, 0, 4, 12).getTime(),
+      });
+      const second = createTask({
+        id: 'task-2',
+        projectId: 'project-1',
+        repeatCfgId: cfg.id,
+        created: new Date(2026, 0, 1, 12).getTime(),
+      });
+      store.overrideSelector(selectTaskFeatureState, {
+        ...initialTaskState,
+        entities: { [first.id]: first, [second.id]: second },
+      });
+      spyOn(service, 'getByIdOnce$').and.returnValue(
+        of(
+          createProject({
+            id: 'project-1',
+            taskIds: ['task-1'],
+            backlogTaskIds: ['task-2'],
+          }),
+        ),
+      );
+      const dispatch = spyOn(store, 'dispatch') as jasmine.Spy<(action: Action) => void>;
+
+      await service.duplicateProject('project-1');
+
+      const actions = dispatch.calls.allArgs().map(([action]) => action);
+      const configs = actions.filter(
+        (action) => action.type === upsertTaskRepeatCfg.type,
+      ) as ReturnType<typeof upsertTaskRepeatCfg>[];
+      expect(configs.length).toBe(1);
+      const updates = actions.filter(
+        (action) => action.type === TaskSharedActions.updateTask.type,
+      ) as ReturnType<typeof TaskSharedActions.updateTask>[];
+      expect(updates.map((action) => action.task)).toEqual([
+        {
+          id: 'new-task-1',
+          changes: { repeatCfgId: configs[0]?.taskRepeatCfg.id, created: first.created },
+        },
+        {
+          id: 'new-task-2',
+          changes: { repeatCfgId: configs[0]?.taskRepeatCfg.id, created: second.created },
+        },
+      ]);
+    });
+
+    it('should copy paused recurrences without instances and exclude other projects', async () => {
+      const paused: TaskRepeatCfg = {
+        ...DEFAULT_TASK_REPEAT_CFG,
+        id: 'paused-repeat',
+        projectId: 'project-1',
+        isPaused: true,
+      };
+      store.overrideSelector(selectAllTaskRepeatCfgs, [
+        paused,
+        { ...paused, id: 'other-repeat', projectId: 'project-2' },
+        { ...paused, id: 'tag-repeat', projectId: null },
+      ]);
+      spyOn(service, 'getByIdOnce$').and.returnValue(
+        of(createProject({ id: 'project-1' })),
+      );
+      const dispatch = spyOn(store, 'dispatch') as jasmine.Spy<(action: Action) => void>;
+
+      await service.duplicateProject('project-1');
+
+      const copies = dispatch.calls
+        .allArgs()
+        .map(([action]) => action)
+        .filter((action) => action.type === upsertTaskRepeatCfg.type) as ReturnType<
+        typeof upsertTaskRepeatCfg
+      >[];
+      expect(copies.length).toBe(1);
+      expect(copies[0]?.taskRepeatCfg).toEqual({
+        ...paused,
+        id: jasmine.any(String),
+        projectId: 'new-project-id',
+      });
+    });
+
+    it('should throw an error if no template project id is given', async () => {
+      await expectAsync(service.duplicateProject('')).toBeRejectedWithError(
+        'No template project id given',
+      );
+    });
+
+    it('should throw an error if the template project is not found', async () => {
+      spyOn(service, 'getByIdOnce$').and.returnValue(of(undefined as any));
+
+      await expectAsync(
+        service.duplicateProject('non-existing-project'),
+      ).toBeRejectedWithError('Template project not found');
+    });
+
+    it('should create a new project with copied settings', fakeAsync(() => {
+      spyOn(service, 'getByIdOnce$').and.returnValue(
+        of(createProject({ id: 'project-1', title: 'Project 1' })),
+      );
+      service.duplicateProject('project-1');
+      tick();
+      expect(service.add).toHaveBeenCalledWith(
+        jasmine.objectContaining({
+          title: 'Project 1 (copy)',
+        }),
+      );
+    }));
+
+    it('should duplicate all tasks from the old project to the new one', fakeAsync(() => {
+      const project = createProject({
+        id: 'project-1',
+        title: 'Project 1',
+        taskIds: ['task-1', 'task-2'],
+      });
+      spyOn(service, 'getByIdOnce$').and.returnValue(of(project));
+      service.duplicateProject('project-1');
+      tick();
+      // 2 parent tasks + 1 subtask (task-1 has sub-task-1)
+      expect(taskService.createNewTaskWithDefaults).toHaveBeenCalledTimes(3);
+    }));
+
+    it('should duplicate subtasks via addSubTask action', fakeAsync(() => {
+      const project = createProject({
+        id: 'project-1',
+        title: 'Project 1',
+        taskIds: ['task-1'],
+      });
+      spyOn(service, 'getByIdOnce$').and.returnValue(of(project));
+      const dispatchSpy = spyOn(store, 'dispatch').and.callThrough();
+      service.duplicateProject('project-1');
+      tick();
+      // Should dispatch addSubTask for the subtask
+      const addSubTaskCalls = dispatchSpy.calls
+        .allArgs()
+        .filter((args: any) => args[0]?.type === '[Task] Add SubTask');
+      expect(addSubTaskCalls.length).toBe(1);
+    }));
+
+    it('should not link copied tasks to the original repeat config', fakeAsync(() => {
+      /* eslint-disable @typescript-eslint/naming-convention */
+      store.overrideSelector(selectTaskFeatureState, {
+        ...initialTaskState,
+        entities: {
+          ...initialTaskState.entities,
+          'task-1': {
+            ...initialTaskState.entities['task-1']!,
+            repeatCfgId: 'repeat-cfg-1',
+            timeEstimate: 3600000,
+          },
+          'sub-task-1': {
+            ...initialTaskState.entities['sub-task-1']!,
+            repeatCfgId: 'repeat-cfg-1',
+            timeEstimate: 600000,
+          },
+        },
+      });
+      /* eslint-enable @typescript-eslint/naming-convention */
+      store.refreshState();
+      const project = createProject({
+        id: 'project-1',
+        title: 'Project 1',
+        taskIds: ['task-1'],
+      });
+      spyOn(service, 'getByIdOnce$').and.returnValue(of(project));
+      service.duplicateProject('project-1');
+      tick();
+      const copied = taskService.createNewTaskWithDefaults.calls
+        .allArgs()
+        .map(([args]) => args.additional);
+      expect(copied.map((additional) => additional?.repeatCfgId)).toEqual([
+        undefined,
+        undefined,
+      ]);
+      expect(copied.map((additional) => additional?.timeEstimate)).toEqual([
+        3600000, 600000,
+      ]);
+    }));
+
+    it('should move backlog tasks to the new project backlog', fakeAsync(() => {
+      const project = createProject({
+        id: 'project-1',
+        title: 'Project 1',
+        backlogTaskIds: ['task-2'],
+      });
+      spyOn(service, 'getByIdOnce$').and.returnValue(of(project));
+      service.duplicateProject('project-1');
+      tick();
+      expect(service.add).toHaveBeenCalledWith(
+        jasmine.objectContaining({
+          title: 'Project 1 (copy)',
+        }),
+      );
+    }));
+
+    it('should duplicate notes from the old project to the new one', fakeAsync(() => {
+      const project = createProject({
+        id: 'project-1',
+        title: 'Project 1',
+        noteIds: ['note-1', 'note-2'],
+      });
+      spyOn(service, 'getByIdOnce$').and.returnValue(of(project));
+      const dispatchSpy = spyOn(store, 'dispatch').and.callThrough();
+      service.duplicateProject('project-1');
+      tick();
+      // Should dispatch addNote for each note
+      const addNoteCalls = dispatchSpy.calls
+        .allArgs()
+        .filter((args: any) => args[0]?.type === '[Note] Add Note');
+      expect(addNoteCalls.length).toBe(2);
+    }));
+
+    it('should not copy isPinnedToToday for duplicated notes', fakeAsync(() => {
+      const project = createProject({
+        id: 'project-1',
+        title: 'Project 1',
+        noteIds: ['note-2'], // note-2 has isPinnedToToday: true
+      });
+      spyOn(service, 'getByIdOnce$').and.returnValue(of(project));
+      const dispatchSpy = spyOn(store, 'dispatch').and.callThrough();
+      service.duplicateProject('project-1');
+      tick();
+      const addNoteCalls = dispatchSpy.calls
+        .allArgs()
+        .filter((args: any) => args[0]?.type === '[Note] Add Note');
+      expect(addNoteCalls.length).toBe(1);
+      expect((addNoteCalls[0][0] as any).note.isPinnedToToday).toBe(false);
+    }));
+
+    it('should duplicate sections and remap their task membership', fakeAsync(() => {
+      const project = createProject({
+        id: 'project-1',
+        title: 'Project 1',
+        taskIds: ['task-1', 'task-2'],
+      });
+      spyOn(service, 'getByIdOnce$').and.returnValue(of(project));
+      const dispatchSpy = spyOn(store, 'dispatch').and.callThrough();
+      service.duplicateProject('project-1');
+      tick();
+      const addSectionCalls = dispatchSpy.calls
+        .allArgs()
+        .filter((args: any) => args[0]?.type === '[Section] Add Section');
+      // Only project-1's sections — not project-2's or the TODAY section
+      expect(addSectionCalls.length).toBe(2);
+      const copiedTitles = addSectionCalls.map((args: any) => args[0].section.title);
+      expect(copiedTitles).not.toContain('Other Project Section');
+      expect(copiedTitles).not.toContain('Today Section');
+      // task-1 -> new-task-1 (first parent duplicated)
+      // task-2 -> new-task-3 (after task-1's subtask new-task-2)
+      expect((addSectionCalls[0][0] as any).section).toEqual(
+        jasmine.objectContaining({
+          contextId: 'new-project-id',
+          contextType: WorkContextType.PROJECT,
+          title: 'Section 1',
+          taskIds: ['new-task-1'],
+        }),
+      );
+      expect((addSectionCalls[1][0] as any).section).toEqual(
+        jasmine.objectContaining({
+          contextId: 'new-project-id',
+          title: 'Section 2',
+          taskIds: ['new-task-3'],
+        }),
+      );
+    }));
+  });
+
+  describe('unarchive', () => {
+    it('dispatches unarchiveProject and shows a plain restore snack', async () => {
+      const dispatchSpy = spyOn(store, 'dispatch').and.callThrough();
+      await service.unarchive('project-1');
+      const types = dispatchSpy.calls.allArgs().map((args: any) => args[0]?.type);
+      expect(types).toContain('[Project] Unarchive Project');
+      expect(snackService.open).toHaveBeenCalledWith({
+        ico: 'unarchive',
+        msg: T.F.PROJECT.S.UNARCHIVED,
+      });
+    });
+
+    describe('when project is still hidden from the menu', () => {
+      beforeEach(() => {
+        store.setState({
+          projects: {
+            ids: ['project-1'],
+            entities: {
+              /* eslint-disable @typescript-eslint/naming-convention */
+              'project-1': createProject({
+                id: 'project-1',
+                title: 'Hidden Project',
+                isHiddenFromMenu: true,
+              }),
+              /* eslint-enable @typescript-eslint/naming-convention */
+            },
+          },
+        });
+      });
+
+      it('should show the hidden-from-menu snack message', async () => {
+        await service.unarchive('project-1');
+        expect(snackService.open).toHaveBeenCalledWith(
+          jasmine.objectContaining({
+            ico: 'unarchive',
+            msg: T.F.PROJECT.S.UNARCHIVED_HIDDEN_FROM_MENU,
+            actionStr: T.F.PROJECT.S.SHOW_IN_MENU,
+          }),
+        );
+      });
+
+      it('should dispatch toggleHideFromMenu when the snack action is invoked', async () => {
+        const dispatchSpy = spyOn(store, 'dispatch').and.callThrough();
+        await service.unarchive('project-1');
+        const callArgs = snackService.open.calls.mostRecent().args[0] as any;
+        dispatchSpy.calls.reset();
+        callArgs.actionFn();
+        const types = dispatchSpy.calls.allArgs().map((args: any) => args[0]?.type);
+        expect(types).toContain('[Project] Toggle hide from menu');
+      });
+    });
+  });
+
+  describe('complete', () => {
+    it('dispatches the plain completeProject project action', () => {
+      const dispatchSpy = spyOn(store, 'dispatch').and.callThrough();
+      service.complete('project-1', 12345);
+      const completeAction = dispatchSpy.calls
+        .allArgs()
+        .map((args: any) => args[0])
+        .find((a: any) => a?.type === '[Project] Complete Project');
+      expect(completeAction).toBeTruthy();
+      expect(completeAction.id).toBe('project-1');
+      expect(completeAction.doneOn).toBe(12345);
+    });
+
+    it('does not show an undo snack (completion is not reversible)', () => {
+      service.complete('project-1', 1);
+      expect(snackService.open).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reopen', () => {
+    it('dispatches reopenProject and shows a snack', () => {
+      const dispatchSpy = spyOn(store, 'dispatch').and.callThrough();
+      service.reopen('project-1');
+      const types = dispatchSpy.calls.allArgs().map((args: any) => args[0]?.type);
+      expect(types).toContain('[Project] Reopen Project');
+      expect(snackService.open).toHaveBeenCalledWith(
+        jasmine.objectContaining({ msg: T.F.PROJECT.S.REOPENED }),
+      );
+    });
+
+    it('offers to show the project in the menu when reopening a hidden project', () => {
+      const dispatchSpy = spyOn(store, 'dispatch').and.callThrough();
+      service.reopen('project-1', { isHiddenFromMenu: true });
+      const snackArg = snackService.open.calls.mostRecent().args[0] as any;
+
+      expect(snackArg.actionStr).toBe(T.F.PROJECT.S.SHOW_IN_MENU);
+      dispatchSpy.calls.reset();
+      snackArg.actionFn();
+
+      const types = dispatchSpy.calls.allArgs().map((args: any) => args[0]?.type);
+      expect(types).toContain('[Project] Toggle hide from menu');
+    });
+  });
+
+  describe('getCompletionInfo', () => {
+    beforeEach(() => {
+      store.setState({
+        projects: {
+          ids: ['project-1'],
+          entities: {
+            /* eslint-disable @typescript-eslint/naming-convention */
+            'project-1': createProject({
+              id: 'project-1',
+              title: 'Project 1',
+              taskIds: ['task-1', 'task-2'],
+            }),
+            /* eslint-enable @typescript-eslint/naming-convention */
+          },
+        },
+      });
+    });
+
+    it('returns top-level tasks, all tasks incl. subtasks, and unfinished tasks', async () => {
+      const info = await service.getCompletionInfo('project-1');
+      expect(info.topLevelTasks.map((t) => t.id)).toEqual(['task-1', 'task-2']);
+      // task-1 has sub-task-1 → included in allTasks, after its parent
+      expect(info.allTasks.map((t) => t.id)).toEqual(['task-1', 'sub-task-1', 'task-2']);
+      expect(info.unfinishedTasks.map((t) => t.id)).toEqual([
+        'task-1',
+        'sub-task-1',
+        'task-2',
+      ]);
+      expect(info.topLevelTasksWithUnfinishedWork.map((t) => t.id)).toEqual([
+        'task-1',
+        'task-2',
+      ]);
+    });
+
+    it('keeps a done parent with an unfinished subtask in topLevelTasksWithUnfinishedWork', async () => {
+      store.overrideSelector(selectTaskFeatureState, {
+        ...initialTaskState,
+        entities: {
+          ...initialTaskState.entities,
+          /* eslint-disable-next-line @typescript-eslint/naming-convention */
+          'task-1': { ...initialTaskState.entities['task-1'], isDone: true } as any,
+        },
+      });
+      store.refreshState();
+      const info = await service.getCompletionInfo('project-1');
+      expect(info.unfinishedTasks.map((t) => t.id)).toEqual(['sub-task-1', 'task-2']);
+      expect(info.topLevelTasksWithUnfinishedWork.map((t) => t.id)).toEqual([
+        'task-1',
+        'task-2',
+      ]);
+    });
+
+    it('includes archived project tasks in stats lists without resolving them as unfinished work', async () => {
+      const archivedParent = createTask({
+        id: 'archived-task',
+        title: 'Archived Task',
+        projectId: 'project-1',
+        isDone: true,
+        subTaskIds: ['archived-sub-task'],
+      });
+      const archivedSubTask = createTask({
+        id: 'archived-sub-task',
+        title: 'Archived Sub Task',
+        projectId: 'project-1',
+        parentId: 'archived-task',
+        isDone: false,
+      });
+      taskService.getAllTasksForProject.and.returnValue(
+        Promise.resolve([
+          initialTaskState.entities['task-1']!,
+          initialTaskState.entities['sub-task-1']!,
+          initialTaskState.entities['task-2']!,
+          archivedParent,
+          archivedSubTask,
+        ]),
+      );
+
+      const info = await service.getCompletionInfo('project-1');
+
+      expect(info.topLevelTasks.map((t) => t.id)).toEqual([
+        'task-1',
+        'task-2',
+        'archived-task',
+      ]);
+      expect(info.allTasks.map((t) => t.id)).toEqual([
+        'task-1',
+        'sub-task-1',
+        'task-2',
+        'archived-task',
+        'archived-sub-task',
+      ]);
+      expect(info.unfinishedTasks.map((t) => t.id)).toEqual([
+        'task-1',
+        'sub-task-1',
+        'task-2',
+      ]);
+      expect(info.topLevelTasksWithUnfinishedWork.map((t) => t.id)).toEqual([
+        'task-1',
+        'task-2',
+      ]);
+    });
+  });
+
+  describe('resolve unfinished completion tasks', () => {
+    it('moves top-level task trees with unfinished work to the Inbox', async () => {
+      const task = { ...initialTaskState.entities['task-1']!, isDone: true };
+      const taskWithSubTasks = {
+        ...task,
+        subTasks: [initialTaskState.entities['sub-task-1']!],
+      };
+      taskService.getByIdWithSubTaskData$.and.returnValue(of(taskWithSubTasks as any));
+
+      await service.moveTasksToInbox([task]);
+
+      expect(taskService.getByIdWithSubTaskData$).toHaveBeenCalledWith('task-1');
+      expect(taskService.moveToProject).toHaveBeenCalledWith(
+        taskWithSubTasks as any,
+        'INBOX_PROJECT',
+      );
+      expect(taskService.setUnDone).toHaveBeenCalledWith('task-1');
+    });
+
+    it('does not re-open an unfinished task moved to the Inbox', async () => {
+      const task = { ...initialTaskState.entities['task-1']!, isDone: false };
+      taskService.getByIdWithSubTaskData$.and.returnValue(
+        of({ ...task, subTasks: [] } as any),
+      );
+
+      await service.moveTasksToInbox([task]);
+
+      expect(taskService.moveToProject).toHaveBeenCalled();
+      expect(taskService.setUnDone).not.toHaveBeenCalled();
+    });
+
+    it('marks every unfinished task done, including subtasks', async () => {
+      const parent = initialTaskState.entities['task-1']!;
+      const subTask = initialTaskState.entities['sub-task-1']!;
+
+      await service.markTasksDone([parent, subTask]);
+
+      expect(taskService.setDone).toHaveBeenCalledWith('task-1');
+      expect(taskService.setDone).toHaveBeenCalledWith('sub-task-1');
+      // Exactly the passed set — no dropped or double-dispatched tasks.
+      expect(taskService.setDone).toHaveBeenCalledTimes(2);
+    });
+  });
+});

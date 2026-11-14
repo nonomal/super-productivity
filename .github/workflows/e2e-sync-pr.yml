@@ -1,0 +1,567 @@
+name: 'E2E Sync (PR Gate)'
+
+# Runs the SuperSync and WebDAV E2E suites on PRs, but only when code that can
+# affect the respective provider changed. Both suites share one change-detection
+# job and one frontend build; each has its own required status check.
+#
+# Why the gate/aggregator shape instead of a trigger-level `paths:` filter:
+# a required status check that gets filtered out by `paths:` never reports a
+# status, so unrelated PRs would hang forever waiting on a check that never runs.
+# Instead this workflow ALWAYS triggers, a cheap `detect` job decides which
+# suites run, and the always-running `gate-*` jobs are the checks you mark
+# required in branch protection — each passes when its suite succeeded OR was
+# skipped (no relevant changes).
+#
+# The `detect` path lists are a heuristic, not a proof: sync correctness is
+# cross-cutting, so a truly exhaustive list would approach "all of src/app".
+# The nightly `E2E Tests (Scheduled)` run remains the backstop for anything
+# these lists miss.
+
+on:
+  pull_request:
+    branches: [master, main]
+    # ready_for_review: drafts skip the suites (see detect), so they must run
+    # once the PR leaves draft.
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-sync-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Job 0: decide which suites this PR needs. Cheap (checkout + git diff, a few
+  # seconds) so it can always run and always feed the required gates.
+  detect:
+    name: Detect sync changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      supersync: ${{ steps.detect.outputs.supersync }}
+      webdav: ${{ steps.detect.outputs.webdav }}
+      fuzz: ${{ steps.detect.outputs.fuzz }}
+      supersync_shards: ${{ steps.detect.outputs.supersync_shards }}
+      webdav_shards: ${{ steps.detect.outputs.webdav_shards }}
+      supersync_total: ${{ steps.detect.outputs.supersync_total }}
+      webdav_total: ${{ steps.detect.outputs.webdav_total }}
+      sync_specs: ${{ steps.detect.outputs.sync_specs }}
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect provider-affecting changes
+        id: detect
+        env:
+          # For workflow_dispatch there is no PR base — force both suites to run.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+
+          supersync=false
+          webdav=false
+          fuzz=false
+          # Shard counts and their matrices; a small spec-only PR narrows both to
+          # one job. The shard jobs take the count from here, not from
+          # strategy.job-total, which a second matrix dimension would inflate.
+          shards() { echo "[$(seq -s, 1 "$1")]"; }
+          supersync_total=8
+          webdav_total=2
+          # Spec files (relative to e2e/tests) a spec-only PR runs; empty = all.
+          sync_specs=''
+          emit() {
+            echo "→ supersync=${supersync} webdav=${webdav} fuzz=${fuzz} supersync_total=${supersync_total} webdav_total=${webdav_total} sync_specs=${sync_specs:-<all>}"
+            {
+              echo "supersync=${supersync}"
+              echo "webdav=${webdav}"
+              echo "fuzz=${fuzz}"
+              echo "supersync_total=${supersync_total}"
+              echo "webdav_total=${webdav_total}"
+              echo "supersync_shards=$(shards "${supersync_total}")"
+              echo "webdav_shards=$(shards "${webdav_total}")"
+              echo "sync_specs=${sync_specs}"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          # Drafts skip the ~180 runner-minute suites to free shared runners;
+          # drafts can't merge, and ready_for_review re-triggers this workflow.
+          if [ "${IS_DRAFT:-}" = "true" ]; then
+            echo "Draft PR — skipping sync suites until ready for review."
+            emit
+            exit 0
+          fi
+
+          if [ -z "${BASE_SHA:-}" ]; then
+            echo "No PR base (manual run) — running both suites."
+            supersync=true
+            webdav=true
+            fuzz=true
+            emit
+            exit 0
+          fi
+
+          # Net changes of THIS PR only. actions/checkout leaves HEAD at the
+          # refs/pull/N/merge commit, whose parents are [live base tip (HEAD^1),
+          # PR head (HEAD^2)]. Diff the PR head against its merge-base with the
+          # live base. NB: do NOT diff the event-time pull_request.base.sha against
+          # the merge HEAD — that sha goes stale as the base branch advances while
+          # the PR is open, so the range balloons to every commit merged into the
+          # base since the PR opened and trips the pattern on unrelated churn.
+          BASE_TIP="$(git rev-parse HEAD^1)"
+          MERGE_BASE="$(git merge-base "${BASE_TIP}" "${PR_HEAD}")"
+          CHANGED_FILES="$(git diff --name-only --no-renames "${MERGE_BASE}" "${PR_HEAD}")"
+          echo "Changed files:"
+          echo "${CHANGED_FILES}"
+
+          # Shared: client sync code + E2E harness that both providers exercise.
+          # Keep in rough sync with the nightly workflow's push `paths:` list.
+          PERSISTENT_ACTION_PATHS='src/app/features/tasks/task-attachment/|src/app/plugins/store/'
+          SYNC_UTILITY_PATHS='src/app/core/date/date\.service\.ts$|src/app/core/util/|src/app/util/(get-db-date-str|is-today\.util|start-of-next-day\.util|local-actions\.token|skip-during-sync(-window)?\.operator|wait-for-sync-window\.operator)\.ts$'
+          COMMON="src/app/imex/sync/|src/app/op-log/|src/app/pfapi/|src/app/root-store/|src/app/features/[^/]+/store/|${PERSISTENT_ACTION_PATHS}|${SYNC_UTILITY_PATHS}|packages/sync-providers/|packages/sync-core/|packages/shared-schema/|docker-compose\.yaml$|e2e/tests/sync/|e2e/helpers/|e2e/pages/|e2e/fixtures/|e2e/constants/|e2e/utils/|e2e/playwright\.config\.ts$|e2e/global-setup\.ts$|e2e/test-durations\.json$|tools/e2e-shard\.js$|\.github/workflows/e2e-sync-pr\.yml$"
+          # SuperSync also depends on the server package and its compose override.
+          SUPERSYNC_PATTERN="^(${COMMON}|packages/super-sync-server/|docker-compose\.supersync\.yaml\$|e2e/webdav-server/|scripts/wait-for-webdav\.sh\$)"
+          # WebDAV also depends on its E2E server image and precondition probe.
+          WEBDAV_PATTERN="^(${COMMON}|e2e/webdav-server/|scripts/wait-for-webdav\.sh\$)"
+          # The sync fuzz harness runs client sync code only, not the E2E helpers.
+          FUZZ_PATTERN="^(src/app/imex/sync/|src/app/op-log/|src/app/pfapi/|src/app/root-store/|src/app/features/[^/]+/store/|${PERSISTENT_ACTION_PATHS}|${SYNC_UTILITY_PATHS}|packages/sync-providers/|packages/sync-core/|packages/shared-schema/|tools/sync-fuzz-compare\.js\$|\.github/workflows/e2e-sync-pr\.yml\$)"
+
+          # here-string (not echo|grep) so a first-line match can't SIGPIPE the
+          # upstream under `set -o pipefail`; if-condition so a no-match (grep
+          # exit 1) does not trip `set -e`.
+          if grep -Eq "${SUPERSYNC_PATTERN}" <<< "${CHANGED_FILES}"; then supersync=true; fi
+          if grep -Eq "${WEBDAV_PATTERN}" <<< "${CHANGED_FILES}"; then webdav=true; fi
+          if grep -Eq "${FUZZ_PATTERN}" <<< "${CHANGED_FILES}"; then fuzz=true; fi
+
+          # Spec-only PR: every changed file is a top-level sync spec (or docs).
+          # The app, the harness and all other specs are unchanged, so only the
+          # changed specs can change outcome; run just those. Up to 5 specs fit
+          # one job per suite; more (a mechanical sweep) keep the full matrix.
+          SPEC_RE='^e2e/tests/sync/[^/]+\.spec\.ts$'
+          if grep -Eq "${SPEC_RE}" <<< "${CHANGED_FILES}" &&
+            ! grep -Evq "${SPEC_RE}|^docs/|\.md$" <<< "${CHANGED_FILES}"; then
+            while IFS= read -r file; do
+              # Deleted specs have nothing left to run.
+              if [ -f "${file}" ]; then sync_specs="${sync_specs:+${sync_specs} }${file#e2e/tests/}"; fi
+            done < <(grep -E "${SPEC_RE}" <<< "${CHANGED_FILES}")
+            if [ -z "${sync_specs}" ]; then
+              echo "Spec-only PR that only deletes specs — nothing to run."
+              supersync=false
+              webdav=false
+            else
+              echo "Spec-only PR — running only the changed specs."
+              if [ "$(wc -w <<< "${sync_specs}")" -le 5 ]; then
+                supersync_total=1
+                webdav_total=1
+              fi
+            fi
+          fi
+
+          emit
+
+  # Job 1: build the frontend once, shared by both suites.
+  build:
+    name: Build Frontend
+    needs: detect
+    if: needs.detect.outputs.supersync == 'true' || needs.detect.outputs.webdav == 'true'
+    # Owner PRs run E2E on sponsored Blacksmith runners for faster feedback; everything else
+    # stays on GitHub. Repo variable USE_BLACKSMITH is the kill switch (unset = GitHub only);
+    # unset it if these jobs sit queued (app uninstalled or sponsorship ended).
+    runs-on: ${{ vars.USE_BLACKSMITH == 'true' && github.event.pull_request.user.login == 'johannesjo' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    env:
+      UNSPLASH_KEY: ${{ secrets.UNSPLASH_KEY }}
+      UNSPLASH_CLIENT_ID: ${{ secrets.UNSPLASH_CLIENT_ID }}
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup E2E Environment
+        uses: ./.github/actions/setup-e2e
+
+      - run: npm run env
+
+      - name: Build Frontend for E2E
+        run: npm run buildFrontend:e2e
+
+      - name: Verify Build Output
+        run: |
+          test -f .tmp/angular-dist/browser/index.html || (echo "Build output missing" && exit 1)
+          test -f .tmp/angular-dist/browser/assets/bundled-plugins/api-test-plugin/manifest.json || (echo "Plugin assets missing from build" && exit 1)
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-sync-pr-build-${{ github.run_id }}
+          path: .tmp/angular-dist
+          retention-days: 1
+
+  # Job 2: SuperSync E2E tests (sharded), each shard spins up SuperSync and
+  # WebDAV so the provider-switch scenarios are exercised instead of skipped.
+  e2e-supersync:
+    name: SuperSync E2E ${{ matrix.shard }}/${{ strategy.job-total }}
+    needs: [detect, build]
+    if: needs.detect.outputs.supersync == 'true'
+    runs-on: ${{ vars.USE_BLACKSMITH == 'true' && github.event.pull_request.user.login == 'johannesjo' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    # tools/e2e-shard.js splits the spec files by measured duration
+    # (e2e/test-durations.json): ~19 min of tests per shard at 8 shards, against
+    # 20–29 min when Playwright's --shard cut equal test counts across 6
+    # (measured 2026-11). A runner ~1.9x slower per test timed out at 40 with
+    # no failing test (#11046); 60 leaves room for that and for stale
+    # durations. A hung test still ends at the 180s per-test timeout.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.detect.outputs.supersync_shards) }}
+    env:
+      UNSPLASH_KEY: ${{ secrets.UNSPLASH_KEY }}
+      UNSPLASH_CLIENT_ID: ${{ secrets.UNSPLASH_CLIENT_ID }}
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup E2E Environment
+        uses: ./.github/actions/setup-e2e
+
+      - name: Download Build Artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v4
+        with:
+          name: e2e-sync-pr-build-${{ github.run_id }}
+          path: .tmp/angular-dist
+
+      - name: Select this shard's specs
+        id: shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ needs.detect.outputs.supersync_total }}
+          ONLY: ${{ needs.detect.outputs.sync_specs }}
+        run: |
+          node tools/e2e-shard.js --grep @supersync --shards "$SHARDS" --shard "$SHARD" --only "$ONLY" --out .tmp/e2e-shard.txt --count-out .tmp/e2e-shard.count
+          if [ -s .tmp/e2e-shard.txt ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No SuperSync specs in this shard."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create .env file for Docker Compose
+        if: steps.shard.outputs.run == 'true'
+        run: cp .env.example .env
+
+      - name: Configure Docker Hub mirror
+        if: steps.shard.outputs.run == 'true'
+        # Cached pulls avoid Docker Hub's shared-runner rate limit (#10633).
+        # Preserve the runner's other daemon settings; cache misses use Docker Hub.
+        shell: bash
+        run: |
+          if [ -f /etc/docker/daemon.json ]; then
+            sudo cat /etc/docker/daemon.json
+          else
+            echo '{}'
+          fi | jq '.["registry-mirrors"] = ["https://mirror.gcr.io"]' > "$RUNNER_TEMP/docker-daemon.json"
+          sudo mkdir -p /etc/docker
+          sudo cp "$RUNNER_TEMP/docker-daemon.json" /etc/docker/daemon.json
+          sudo systemctl restart docker
+
+      - name: Start Sync Docker Services
+        if: steps.shard.outputs.run == 'true'
+        # Retry to survive transient Docker Hub pull / Alpine mirror failures.
+        # set -eu fails an attempt as soon as the build fails; without it the
+        # health wait spun until timeout_minutes, burning the job's time budget.
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 6
+          max_attempts: 3
+          retry_wait_seconds: 60
+          command: |
+            set -eu
+            docker compose -f docker-compose.yaml -f docker-compose.supersync.yaml up -d --build supersync webdav-e2e
+            echo "⏳ Waiting for SuperSync server..."
+            timeout 180 sh -c 'until curl -s http://localhost:1901/health > /dev/null 2>&1; do sleep 1; done'
+            echo "✓ SuperSync server ready!"
+            chmod +x ./scripts/wait-for-webdav.sh
+            ./scripts/wait-for-webdav.sh
+
+      - name: Run SuperSync E2E Tests
+        if: steps.shard.outputs.run == 'true'
+        env:
+          E2E_REQUIRE_SUPERSYNC: 'true'
+          E2E_REQUIRE_WEBDAV: 'true'
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: .tmp/e2e-test-results/junit-supersync-${{ matrix.shard }}.xml
+        run: npx playwright test --config e2e/playwright.config.ts --reporter=line,junit --grep "@supersync" --test-list .tmp/e2e-shard.txt
+
+      # Playwright passes a --test-list run that found no tests, so compare
+      # the report with the count the shard tool listed.
+      - name: Check every listed test ran
+        if: steps.shard.outputs.run == 'true'
+        env:
+          JUNIT: .tmp/e2e-test-results/junit-supersync-${{ matrix.shard }}.xml
+        run: |
+          expected="$(cat .tmp/e2e-shard.count)"
+          actual="$(grep -oE '<testsuites [^>]*' "$JUNIT" | grep -oE ' tests="[0-9]+"' | grep -oE '[0-9]+' || true)"
+          if [ "${actual}" != "${expected}" ]; then
+            echo "::error::SuperSync shard reported ${actual:-no} tests; the shard list holds ${expected}."
+            exit 1
+          fi
+          echo "✓ ${actual} tests ran, as listed."
+
+      # Per-file durations for refreshing e2e/test-durations.json (see
+      # tools/e2e-shard.js). Uploaded on failures too: a red run still timed
+      # every test that finished.
+      - name: Upload JUnit Timings
+        if: ${{ !cancelled() && steps.shard.outputs.run == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-sync-pr-junit-supersync-${{ matrix.shard }}-${{ github.run_id }}
+          path: .tmp/e2e-test-results/junit-supersync-${{ matrix.shard }}.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Print Docker Logs on Failure
+        if: ${{ failure() }}
+        run: |
+          # Bounded on purpose: the container runs with NODE_ENV=development, so Prisma
+          # logs every query. An unbounded dump was ~13k lines and pushed the Playwright
+          # failure out of the log tail the GitHub API and `gh run view --log-failed`
+          # return, leaving the actual failure unreadable.
+          echo "=== SuperSync Logs (last 400 lines per container) ==="
+          docker compose -f docker-compose.yaml -f docker-compose.supersync.yaml logs --tail=400 supersync webdav-e2e
+
+      - name: Stop Docker Services
+        if: ${{ always() && steps.shard.outputs.run == 'true' }}
+        run: docker compose -f docker-compose.yaml -f docker-compose.supersync.yaml down
+
+      - name: Upload E2E Results on Failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-sync-pr-supersync-results-${{ matrix.shard }}-${{ github.run_id }}
+          path: .tmp/e2e-test-results/**/*.*
+          retention-days: 30
+
+  # Job 3: WebDAV E2E tests, split by duration like SuperSync. As one job it
+  # took ~25–32 min (measured 2026-11), as long as the slowest SuperSync shard.
+  e2e-webdav:
+    name: WebDAV E2E ${{ matrix.shard }}/${{ strategy.job-total }}
+    needs: [detect, build]
+    if: needs.detect.outputs.webdav == 'true'
+    runs-on: ${{ vars.USE_BLACKSMITH == 'true' && github.event.pull_request.user.login == 'johannesjo' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.detect.outputs.webdav_shards) }}
+    env:
+      UNSPLASH_KEY: ${{ secrets.UNSPLASH_KEY }}
+      UNSPLASH_CLIENT_ID: ${{ secrets.UNSPLASH_CLIENT_ID }}
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup E2E Environment
+        uses: ./.github/actions/setup-e2e
+
+      - name: Download Build Artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v4
+        with:
+          name: e2e-sync-pr-build-${{ github.run_id }}
+          path: .tmp/angular-dist
+
+      - name: Select this shard's specs
+        id: shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ needs.detect.outputs.webdav_total }}
+          ONLY: ${{ needs.detect.outputs.sync_specs }}
+        run: |
+          node tools/e2e-shard.js --grep @webdav --shards "$SHARDS" --shard "$SHARD" --only "$ONLY" --out .tmp/e2e-shard.txt --count-out .tmp/e2e-shard.count
+          if [ -s .tmp/e2e-shard.txt ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No WebDAV specs in this shard."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create .env file for Docker Compose
+        if: steps.shard.outputs.run == 'true'
+        run: cp .env.example .env
+
+      - name: Configure Docker Hub mirror
+        if: steps.shard.outputs.run == 'true'
+        # Cached pulls avoid Docker Hub's shared-runner rate limit (#10633).
+        # Preserve the runner's other daemon settings; cache misses use Docker Hub.
+        shell: bash
+        run: |
+          if [ -f /etc/docker/daemon.json ]; then
+            sudo cat /etc/docker/daemon.json
+          else
+            echo '{}'
+          fi | jq '.["registry-mirrors"] = ["https://mirror.gcr.io"]' > "$RUNNER_TEMP/docker-daemon.json"
+          sudo mkdir -p /etc/docker
+          sudo cp "$RUNNER_TEMP/docker-daemon.json" /etc/docker/daemon.json
+          sudo systemctl restart docker
+
+      - name: Start WebDAV Docker Service
+        if: steps.shard.outputs.run == 'true'
+        # Retry to survive transient Docker Hub pull timeouts / rate limits.
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4.0.0
+        with:
+          timeout_minutes: 6
+          max_attempts: 3
+          retry_wait_seconds: 20
+          command: |
+            docker compose up -d --build webdav-e2e
+            chmod +x ./scripts/wait-for-webdav.sh
+            ./scripts/wait-for-webdav.sh
+
+      - name: Run WebDAV E2E Tests
+        if: steps.shard.outputs.run == 'true'
+        env:
+          E2E_REQUIRE_WEBDAV: 'true'
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: .tmp/e2e-test-results/junit-webdav-${{ matrix.shard }}.xml
+        run: npx playwright test --config e2e/playwright.config.ts --reporter=line,junit --grep "@webdav" --test-list .tmp/e2e-shard.txt
+
+      # Playwright passes a --test-list run that found no tests, so compare
+      # the report with the count the shard tool listed.
+      - name: Check every listed test ran
+        if: steps.shard.outputs.run == 'true'
+        env:
+          JUNIT: .tmp/e2e-test-results/junit-webdav-${{ matrix.shard }}.xml
+        run: |
+          expected="$(cat .tmp/e2e-shard.count)"
+          actual="$(grep -oE '<testsuites [^>]*' "$JUNIT" | grep -oE ' tests="[0-9]+"' | grep -oE '[0-9]+' || true)"
+          if [ "${actual}" != "${expected}" ]; then
+            echo "::error::WebDAV shard reported ${actual:-no} tests; the shard list holds ${expected}."
+            exit 1
+          fi
+          echo "✓ ${actual} tests ran, as listed."
+
+      - name: Upload JUnit Timings
+        if: ${{ !cancelled() && steps.shard.outputs.run == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-sync-pr-junit-webdav-${{ matrix.shard }}-${{ github.run_id }}
+          path: .tmp/e2e-test-results/junit-webdav-${{ matrix.shard }}.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Print Docker Logs on Failure
+        if: ${{ failure() }}
+        run: |
+          echo "=== WebDAV Logs (last 400 lines) ==="
+          docker compose logs --tail=400 webdav-e2e
+
+      - name: Stop Docker Services
+        if: ${{ always() && steps.shard.outputs.run == 'true' }}
+        run: docker compose down
+
+      - name: Upload E2E Results on Failure
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-sync-pr-webdav-results-${{ matrix.shard }}-${{ github.run_id }}
+          path: .tmp/e2e-test-results/**/*.*
+          retention-days: 30
+
+  # Sync fuzz seeds that newly fail against the base. The pinned traces in
+  # `npm test` only report signatures no pin explains, so a known failure
+  # turning more frequent passes them; this comparison caught two such
+  # regressions by hand in #10398. Informational: not part of any gate.
+  sync-fuzz-compare:
+    name: Sync Fuzz Compare
+    needs: detect
+    if: needs.detect.outputs.fuzz == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup E2E Environment
+        uses: ./.github/actions/setup-e2e
+
+      # On a PR, HEAD is the merge commit and HEAD^1 the live base tip.
+      - name: Compare fuzz signatures with the base
+        env:
+          BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || 'origin/master' }}
+        run: npm run sync-fuzz:compare -- "${BASE_REF}"
+
+  # Job 4: SuperSync required status check. Always runs, so it always reports.
+  # Mark this job's name ("SuperSync E2E Gate") required in branch protection.
+  gate-supersync:
+    name: SuperSync E2E Gate
+    needs: [detect, e2e-supersync]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Evaluate result
+        env:
+          DETECT_RESULT: ${{ needs.detect.result }}
+          CHANGED: ${{ needs.detect.outputs.supersync }}
+          RESULT: ${{ needs.e2e-supersync.result }}
+        run: |
+          set -euo pipefail
+          # Fail closed: if change detection didn't succeed we can't know whether
+          # the suite was needed, so block rather than pass on an empty output.
+          if [ "${DETECT_RESULT}" != "success" ]; then
+            echo "✗ Change detection did not succeed (result: ${DETECT_RESULT}); cannot clear the gate."
+            exit 1
+          fi
+          if [ "${CHANGED}" != "true" ]; then
+            echo "✓ No SuperSync-affecting changes — SuperSync E2E not required for this PR."
+            exit 0
+          fi
+          if [ "${RESULT}" = "success" ]; then
+            echo "✓ SuperSync E2E passed."
+            exit 0
+          fi
+          echo "✗ SuperSync E2E did not pass (result: ${RESULT})."
+          exit 1
+
+  # Job 5: WebDAV required status check. Always runs, so it always reports.
+  # Mark this job's name ("WebDAV E2E Gate") required in branch protection.
+  gate-webdav:
+    name: WebDAV E2E Gate
+    needs: [detect, e2e-webdav]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Evaluate result
+        env:
+          DETECT_RESULT: ${{ needs.detect.result }}
+          CHANGED: ${{ needs.detect.outputs.webdav }}
+          RESULT: ${{ needs.e2e-webdav.result }}
+        run: |
+          set -euo pipefail
+          if [ "${DETECT_RESULT}" != "success" ]; then
+            echo "✗ Change detection did not succeed (result: ${DETECT_RESULT}); cannot clear the gate."
+            exit 1
+          fi
+          if [ "${CHANGED}" != "true" ]; then
+            echo "✓ No WebDAV-affecting changes — WebDAV E2E not required for this PR."
+            exit 0
+          fi
+          if [ "${RESULT}" = "success" ]; then
+            echo "✓ WebDAV E2E passed."
+            exit 0
+          fi
+          echo "✗ WebDAV E2E did not pass (result: ${RESULT})."
+          exit 1

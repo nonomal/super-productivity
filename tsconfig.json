@@ -5,6 +5,13 @@
   To learn more about this file see: https://angular.io/config/solution-tsconfig.
 */
 {
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "outDir": "./dist",
+    // Read by ts-node in the Electron main-process tests (test:electron).
+    "rootDir": ".",
+    "target": "ES2022"
+  },
   "files": [],
   "references": [
     {

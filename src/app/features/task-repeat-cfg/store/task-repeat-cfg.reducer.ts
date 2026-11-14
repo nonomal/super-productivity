@@ -1,90 +1,111 @@
-import { createEntityAdapter, EntityAdapter } from '@ngrx/entity';
 import {
-  AddTaskRepeatCfgToTask,
-  DeleteTaskRepeatCfg,
-  DeleteTaskRepeatCfgs,
-  TaskRepeatCfgActions,
-  TaskRepeatCfgActionTypes,
-  UpdateTaskRepeatCfg,
-  UpdateTaskRepeatCfgs,
-  UpsertTaskRepeatCfg
+  addTaskRepeatCfgToTask,
+  deleteTaskRepeatCfg,
+  deleteTaskRepeatCfgs,
+  updateTaskRepeatCfg,
+  updateTaskRepeatCfgs,
+  upsertTaskRepeatCfg,
+  deleteTaskRepeatCfgInstance,
 } from './task-repeat-cfg.actions';
 import { TaskRepeatCfg, TaskRepeatCfgState } from '../task-repeat-cfg.model';
-import { createFeatureSelector, createSelector } from '@ngrx/store';
+import { createReducer, on } from '@ngrx/store';
 import { loadAllData } from '../../../root-store/meta/load-all-data.action';
-import { AppDataComplete } from '../../../imex/sync/sync.model';
-import { migrateTaskRepeatCfgState } from '../migrate-task-repeat-cfg-state.util';
+import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
+import { adapter } from './task-repeat-cfg.selectors';
+import { applyClearedFields } from '../../../util/cleared-update-fields';
 
-export const TASK_REPEAT_CFG_FEATURE_NAME = 'taskRepeatCfg';
+export { TASK_REPEAT_CFG_FEATURE_NAME } from './task-repeat-cfg.selectors';
 
-export const adapter: EntityAdapter<TaskRepeatCfg> = createEntityAdapter<TaskRepeatCfg>();
-export const selectTaskRepeatCfgFeatureState = createFeatureSelector<TaskRepeatCfgState>(TASK_REPEAT_CFG_FEATURE_NAME);
-export const {selectIds, selectEntities, selectAll, selectTotal} = adapter.getSelectors();
-export const selectAllTaskRepeatCfgs = createSelector(selectTaskRepeatCfgFeatureState, selectAll);
-export const selectTaskRepeatCfgById = createSelector(
-  selectTaskRepeatCfgFeatureState,
-  (state: TaskRepeatCfgState, props: { id: string }): TaskRepeatCfg => {
-    const cfg = state.entities[props.id];
-    if (!cfg) {
-      throw new Error('Missing taskRepeatCfg');
-    }
-    return cfg;
-  }
-);
-export const selectTaskRepeatCfgByIdAllowUndefined = createSelector(
-  selectTaskRepeatCfgFeatureState,
-  (state: TaskRepeatCfgState, props: { id: string }): TaskRepeatCfg | undefined => state.entities[props.id]);
+export const { selectIds, selectEntities, selectAll, selectTotal } =
+  adapter.getSelectors();
 
 export const initialTaskRepeatCfgState: TaskRepeatCfgState = adapter.getInitialState({
   // additional entity state properties
 });
 
-export function taskRepeatCfgReducer(
-  state: TaskRepeatCfgState = initialTaskRepeatCfgState,
-  action: TaskRepeatCfgActions
-): TaskRepeatCfgState {
+export const taskRepeatCfgReducer = createReducer<TaskRepeatCfgState>(
+  initialTaskRepeatCfgState,
 
-  // TODO fix this hackyness once we use the new syntax everywhere
-  if ((action.type as string) === loadAllData.type) {
-    const {appDataComplete}: { appDataComplete: AppDataComplete } = action as any;
-    return appDataComplete.taskRepeatCfg
-      ? migrateTaskRepeatCfgState({...appDataComplete.taskRepeatCfg})
-      : state;
-  }
+  on(loadAllData, (oldState, { appDataComplete }) =>
+    appDataComplete.taskRepeatCfg ? appDataComplete.taskRepeatCfg : oldState,
+  ),
 
-  switch (action.type) {
-    case TaskRepeatCfgActionTypes.AddTaskRepeatCfgToTask: {
-      return adapter.addOne((action as AddTaskRepeatCfgToTask).payload.taskRepeatCfg, state);
-    }
+  // delete all project tasks from tags on project delete
+  on(TaskSharedActions.deleteProject, (state, { projectId }) => {
+    const taskRepeatCfgs = state.ids.map((id) => state.entities[id] as TaskRepeatCfg);
+    const allCfgIdsForProject = taskRepeatCfgs.filter(
+      (cfg) => cfg.projectId === projectId,
+    );
+    return adapter.removeMany(
+      allCfgIdsForProject.map((repeatCfg) => repeatCfg.id),
+      state,
+    );
 
-    case TaskRepeatCfgActionTypes.UpdateTaskRepeatCfg: {
-      return adapter.updateOne((action as UpdateTaskRepeatCfg).payload.taskRepeatCfg, state);
-    }
+    // const cfgsIdsToRemove: string[] = allCfgIdsForProject
+    //   .filter((cfg) => !cfg.tagIds || cfg.tagIds.length === 0)
+    //   .map((cfg) => cfg.id as string);
+    // if (cfgsIdsToRemove.length > 0) {
+    //   // this._taskRepeatCfgService.deleteTaskRepeatCfgsNoTaskCleanup(cfgsIdsToRemove);
+    //   return adapter.removeMany(cfgsIdsToRemove, state);
+    // }
 
-    case TaskRepeatCfgActionTypes.UpdateTaskRepeatCfgs: {
-      const {ids, changes} = (action as UpdateTaskRepeatCfgs).payload;
-      return adapter.updateMany(ids.map(id => ({
+    // const cfgsToUpdate: string[] = allCfgIdsForProject
+    //   .filter((cfg) => cfg.tagIds && cfg.tagIds.length > 0)
+    //   .map((taskRepeatCfg) => taskRepeatCfg.id as string);
+    // if (cfgsToUpdate.length > 0) {
+    //   // this._taskRepeatCfgService.updateTaskRepeatCfgs(cfgsToUpdate, { projectId: null });
+    // }
+  }),
+  on(TaskSharedActions.deleteTaskRepeatCfg, (state, { taskRepeatCfgId }) =>
+    adapter.removeOne(taskRepeatCfgId, state),
+  ),
+
+  // INTERNAL
+  on(addTaskRepeatCfgToTask, (state, { taskRepeatCfg }) =>
+    adapter.addOne(taskRepeatCfg, state),
+  ),
+  on(updateTaskRepeatCfg, (state, { taskRepeatCfg, clearedFields }) =>
+    // Restore keys that JSON serialization dropped from a replayed op's
+    // changes (`{ someField: undefined }`) — see issue #9776.
+    adapter.updateOne(
+      {
+        id: taskRepeatCfg.id as string,
+        changes: applyClearedFields(taskRepeatCfg.changes, clearedFields),
+      },
+      state,
+    ),
+  ),
+  on(upsertTaskRepeatCfg, (state, { taskRepeatCfg }) =>
+    adapter.upsertOne(taskRepeatCfg, state),
+  ),
+  on(deleteTaskRepeatCfg, (state, { id }) => adapter.removeOne(id, state)),
+  on(deleteTaskRepeatCfgs, (state, { ids }) => adapter.removeMany(ids, state)),
+  on(updateTaskRepeatCfgs, (state, { ids, changes }) =>
+    adapter.updateMany(
+      ids.map((id) => ({
         id,
         changes,
-      })), state);
+      })),
+      state,
+    ),
+  ),
+  on(deleteTaskRepeatCfg, (state, { id }) => adapter.removeOne(id, state)),
+  on(deleteTaskRepeatCfgInstance, (state, { repeatCfgId, dateStr }) => {
+    const cfg = state.entities[repeatCfgId];
+    if (!cfg) return state;
+
+    const deletedDates = cfg.deletedInstanceDates || [];
+    if (!deletedDates.includes(dateStr)) {
+      return adapter.updateOne(
+        {
+          id: repeatCfgId,
+          changes: {
+            deletedInstanceDates: [...deletedDates, dateStr],
+          },
+        },
+        state,
+      );
     }
-
-    case TaskRepeatCfgActionTypes.UpsertTaskRepeatCfg: {
-      return adapter.upsertOne((action as UpsertTaskRepeatCfg).payload.taskRepeatCfg, state);
-    }
-
-    case TaskRepeatCfgActionTypes.DeleteTaskRepeatCfg: {
-      return adapter.removeOne((action as DeleteTaskRepeatCfg).payload.id, state);
-    }
-
-    case TaskRepeatCfgActionTypes.DeleteTaskRepeatCfgs: {
-      return adapter.removeMany((action as DeleteTaskRepeatCfgs).payload.ids, state);
-    }
-
-    default: {
-      return state;
-    }
-  }
-}
-
-
+    return state;
+  }),
+);

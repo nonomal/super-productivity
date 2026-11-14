@@ -6,11 +6,14 @@ export const loadFromRealLs = (key: string): unknown => {
   return JSON.parse(serializedState);
 };
 
-export const removeFromRealLs = (key: string) => {
+export const removeFromRealLs = (key: string): void => {
   localStorage.removeItem(key);
 };
 
-export const saveToRealLs = (key: string, state: { [key: string]: unknown } | unknown[]) => {
+export const saveToRealLs = (
+  key: string,
+  state: { [key: string]: unknown } | unknown[],
+): void => {
   const serializedState = JSON.stringify(state);
   localStorage.setItem(key, serializedState);
 };
@@ -23,7 +26,10 @@ export const loadFromSessionStorage = (key: string): unknown => {
   return JSON.parse(serializedState);
 };
 
-export const saveToSessionStorage = (key: string, state: { [key: string]: unknown }) => {
+export const saveToSessionStorage = (
+  key: string,
+  state: { [key: string]: unknown },
+): void => {
   const serializedState = JSON.stringify(state);
   sessionStorage.setItem(key, serializedState);
 };

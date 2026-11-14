@@ -1,37 +1,45 @@
-import { Action } from '@ngrx/store';
 import { Update } from '@ngrx/entity';
 import { TaskAttachment } from './task-attachment.model';
+import { createAction } from '@ngrx/store';
+import { PersistentActionMeta } from '../../../op-log/core/persistent-action.interface';
+import { OpType } from '../../../op-log/core/operation.types';
 
 // NOTE: all is handled in task reducer too
-export enum TaskAttachmentActionTypes {
-  'AddTaskAttachment' = '[TaskAttachment] Add TaskAttachment',
-  'UpdateTaskAttachment' = '[TaskAttachment] Update TaskAttachment',
-  'DeleteTaskAttachment' = '[TaskAttachment] Delete TaskAttachment',
-}
+export const addTaskAttachment = createAction(
+  '[TaskAttachment] Add TaskAttachment',
+  (attachmentProps: { taskId: string; taskAttachment: TaskAttachment }) => ({
+    ...attachmentProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: attachmentProps.taskId,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class AddTaskAttachment implements Action {
-  readonly type: string = TaskAttachmentActionTypes.AddTaskAttachment;
+export const updateTaskAttachment = createAction(
+  '[TaskAttachment] Update TaskAttachment',
+  (attachmentProps: { taskId: string; taskAttachment: Update<TaskAttachment> }) => ({
+    ...attachmentProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: attachmentProps.taskId,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { taskId: string; taskAttachment: TaskAttachment }) {
-  }
-}
-
-export class UpdateTaskAttachment implements Action {
-  readonly type: string = TaskAttachmentActionTypes.UpdateTaskAttachment;
-
-  constructor(public payload: { taskId: string; taskAttachment: Update<TaskAttachment> }) {
-  }
-}
-
-export class DeleteTaskAttachment implements Action {
-  readonly type: string = TaskAttachmentActionTypes.DeleteTaskAttachment;
-
-  constructor(public payload: { taskId: string; id: string }) {
-  }
-}
-
-export type TaskAttachmentActions =
-  AddTaskAttachment
-  | UpdateTaskAttachment
-  | DeleteTaskAttachment
-  ;
+export const deleteTaskAttachment = createAction(
+  '[TaskAttachment] Delete TaskAttachment',
+  (attachmentProps: { taskId: string; id: string }) => ({
+    ...attachmentProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: attachmentProps.taskId,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);

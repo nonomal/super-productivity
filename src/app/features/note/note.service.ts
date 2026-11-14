@@ -1,133 +1,127 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import { Note } from './note.model';
+import { Note, NoteState } from './note.model';
 import { select, Store } from '@ngrx/store';
 import {
   addNote,
-  addNoteReminder,
   deleteNote,
-  loadNoteState,
-  removeNoteReminder,
+  moveNoteToOtherProject,
   updateNote,
   updateNoteOrder,
-  updateNoteReminder
 } from './store/note.actions';
-import * as shortid from 'shortid';
-import { initialNoteState, NoteState, selectAllNotes, selectNoteById } from './store/note.reducer';
-import { PersistenceService } from '../../core/persistence/persistence.service';
+import { nanoid } from 'nanoid';
+import {
+  selectAllNotes,
+  selectNoteById,
+  selectNoteFeatureState,
+} from './store/note.reducer';
 import { take } from 'rxjs/operators';
 import { createFromDrop } from '../../core/drop-paste-input/drop-paste-input';
 import { isImageUrl, isImageUrlSimple } from '../../util/is-image-url';
 import { DropPasteInput } from '../../core/drop-paste-input/drop-paste.model';
+import { WorkContextService } from '../work-context/work-context.service';
+import { WorkContextType } from '../work-context/work-context.model';
+import { isInputElement } from '../../util/dom-element';
 
 @Injectable({
   providedIn: 'root',
 })
 export class NoteService {
-  public notes$: Observable<Note[]> = this._store$.pipe(select(selectAllNotes));
+  private _store$ = inject<Store<any>>(Store);
+  private _workContextService = inject(WorkContextService);
 
-  constructor(
-    private _store$: Store<any>,
-    private _persistenceService: PersistenceService,
-  ) {
+  notes$: Observable<Note[]> = this._store$.pipe(select(selectAllNotes));
+  state$: Observable<NoteState> = this._store$.select(selectNoteFeatureState);
+
+  getByIdOnce$(id: string): Observable<Note> {
+    return this._store$.pipe(select(selectNoteById, { id }), take(1));
   }
 
-  getById$(id: string): Observable<Note> {
-    return this._store$.pipe(select(selectNoteById, {id}), take(1));
+  add(note: Partial<Note> = {}, isPreventFocus: boolean = false): void {
+    const id = nanoid();
+
+    this._store$.dispatch(
+      addNote({
+        note: {
+          id,
+          projectId:
+            (this._workContextService.activeWorkContextType === WorkContextType.PROJECT &&
+              this._workContextService.activeWorkContextId) ||
+            null,
+          isPinnedToToday:
+            this._workContextService.activeWorkContextType === WorkContextType.TAG,
+          content: '',
+          created: Date.now(),
+          modified: Date.now(),
+          ...note,
+        },
+        isPreventFocus,
+      }),
+    );
   }
 
-  async getByIdFromEverywhere(id: string, projectId: string): Promise<Note> {
-    return await this._persistenceService.note.ent.getById(projectId, id);
+  remove(note: Note): void {
+    this._store$.dispatch(
+      deleteNote({
+        id: note.id,
+        projectId: note.projectId,
+        isPinnedToToday: note.isPinnedToToday,
+        note,
+      }),
+    );
   }
 
-  public async loadStateForProject(projectId: string) {
-    const notes = await this._persistenceService.note.load(projectId) || initialNoteState;
-    this.loadState(notes);
+  update(id: string, note: Partial<Note>): void {
+    this._store$.dispatch(
+      updateNote({
+        note: {
+          id,
+          changes: note,
+        },
+      }),
+    );
   }
 
-  public loadState(state: NoteState) {
-    this._store$.dispatch(loadNoteState({state}));
+  updateOrder(ids: string[]): void {
+    // TODO maybe check
+    this._store$.dispatch(
+      updateNoteOrder({
+        ids,
+        activeContextType: this._workContextService
+          .activeWorkContextType as WorkContextType,
+        activeContextId: this._workContextService.activeWorkContextId as string,
+      }),
+    );
   }
 
-  public add(note: Partial<Note> = {}, remindAt: number | null = null, isPreventFocus: boolean = false) {
-    const id = shortid();
-
-    this._store$.dispatch(addNote({
-      note: {
-        id,
-        content: '',
-        created: Date.now(),
-        modified: Date.now(),
-        ...note,
-      },
-      isPreventFocus,
-      remindAt,
-    }));
-  }
-
-  public remove(id: string) {
-    this._store$.dispatch(deleteNote({id}));
-  }
-
-  public update(id: string, note: Partial<Note>) {
-    this._store$.dispatch(updateNote({
-      note: {
-        id,
-        changes: note,
-      }
-    }));
-  }
-
-  public async updateFromDifferentWorkContext(workContextId: string, id: string, updates: Partial<Note>) {
-    const noteState = await this._persistenceService.note.load(workContextId);
-    const noteToUpdate = noteState.entities[id];
-    if (noteToUpdate) {
-      Object.assign(noteToUpdate, updates);
-    } else {
-      console.warn('Note not found while trying to update for different project');
-    }
-    return await this._persistenceService.note.save(workContextId, noteState, {isSyncModelChange: true});
-  }
-
-  public updateOrder(ids: string[]) {
-    this._store$.dispatch(updateNoteOrder({ids}));
+  moveToOtherProject(note: Note, targetProjectId: string): void {
+    this._store$.dispatch(
+      moveNoteToOtherProject({
+        note,
+        targetProjectId,
+      }),
+    );
   }
 
   // REMINDER
   // --------
-  addReminder(noteId: string, remindAt: number, title: string) {
-    this._store$.dispatch(addNoteReminder({id: noteId, remindAt, title}));
-  }
-
-  updateReminder(noteId: string, reminderId: string, remindAt: number, title: string) {
-    this._store$.dispatch(updateNoteReminder({id: noteId, reminderId, remindAt, title}));
-  }
-
-  removeReminder(noteId: string, reminderId: string) {
-    this._store$.dispatch(removeNoteReminder({id: noteId, reminderId}));
-  }
-
-  createFromDrop(ev: DragEvent) {
+  createFromDrop(ev: DragEvent): void {
     this._handleInput(createFromDrop(ev) as DropPasteInput, ev);
   }
 
-  private async _handleInput(drop: DropPasteInput, ev: Event) {
+  private async _handleInput(drop: DropPasteInput, ev: Event): Promise<void> {
     // properly not intentional so we leave
-    if (!drop || !drop.path || drop.type === 'FILE') {
-      return;
-    }
+    if (!drop || !drop.path || drop.type === 'FILE') return;
 
-    // don't intervene with text inputs
+    // Skip handling inside input elements
     const target = ev.target as HTMLElement;
-    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-      return;
-    }
+    if (isInputElement(target)) return;
 
     const note: Partial<Note> = {
       content: drop.path,
     };
 
-    const isImg = isImageUrlSimple(drop.path) || await isImageUrl(drop.path);
+    const isImg = isImageUrlSimple(drop.path) || (await isImageUrl(drop.path));
     if (isImg) {
       note.imgUrl = drop.path;
     }

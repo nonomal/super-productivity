@@ -1,19 +1,17 @@
 'use strict';
-import OpenDevToolsOptions = Electron.OpenDevToolsOptions;
-
-const electron = require('electron');
-const localShortcut = require('electron-localshortcut');
-
-const {app, BrowserWindow} = electron;
+import { log } from 'electron-log/main';
+import { OpenDevToolsOptions, app, BrowserWindow } from 'electron';
+import * as localShortcut from 'electron-localshortcut';
 const isMacOS = process.platform === 'darwin';
 
 const devToolsOptions: OpenDevToolsOptions = {
-  mode: 'bottom'
+  mode: 'bottom',
 };
 
-function toggleDevTools(win = BrowserWindow.getFocusedWindow()) {
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
+function toggleDevTools(win = BrowserWindow.getFocusedWindow()): void {
   if (win) {
-    const {webContents} = win;
+    const { webContents } = win;
     if (webContents.isDevToolsOpened()) {
       webContents.closeDevTools();
     } else {
@@ -22,27 +20,31 @@ function toggleDevTools(win = BrowserWindow.getFocusedWindow()) {
   }
 }
 
-function devTools(win = BrowserWindow.getFocusedWindow()) {
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
+function devTools(win = BrowserWindow.getFocusedWindow()): void {
   if (win) {
     toggleDevTools(win);
   }
 }
 
-function openDevTools(win = BrowserWindow.getFocusedWindow()) {
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
+function openDevTools(win = BrowserWindow.getFocusedWindow()): void {
   if (win) {
     win.webContents.openDevTools(devToolsOptions);
   }
 }
 
-function refresh(win = BrowserWindow.getFocusedWindow()) {
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
+function refresh(win = BrowserWindow.getFocusedWindow()): void {
   if (win) {
     win.webContents.reloadIgnoringCache();
   }
 }
 
-function inspectElements() {
+// eslint-disable-next-line prefer-arrow/prefer-arrow-functions
+function inspectElements(): void {
   const win = BrowserWindow.getFocusedWindow();
-  const inspect = () => {
+  const inspect = (): void => {
     // TODO check
     // win.devToolsWebContents.executeJavaScript('DevToolsAPI.enterInspectElementMode()');
   };
@@ -71,23 +73,44 @@ function inspectElements() {
 //   }
 // };
 
-export const initDebug = (opts, isAddReload) => {
-  opts = Object.assign({
-    enabled: null,
-    showDevTools: true,
-    ...devToolsOptions,
-  }, opts);
-  console.log(opts);
+export const initDebug = (
+  opts: {
+    enabled?: boolean | null;
+    showDevTools?: boolean;
+    devToolsMode?: 'bottom' | 'left' | 'right' | 'undocked' | 'detach' | 'previous';
+    mode?: string;
+  },
+  isAddReload: boolean,
+): void => {
+  opts = Object.assign(
+    {
+      enabled: null,
+      showDevTools: true,
+      ...devToolsOptions,
+    },
+    opts,
+  );
+  log(opts);
 
   if (opts.enabled === false) {
     return;
   }
 
-  if (opts.devToolsMode !== 'previous') {
-    devToolsOptions.mode = opts.devToolsMode;
+  if (opts.devToolsMode !== 'previous' && opts.devToolsMode) {
+    devToolsOptions.mode = opts.devToolsMode as
+      | 'bottom'
+      | 'left'
+      | 'right'
+      | 'undocked'
+      | 'detach';
   }
 
   app.on('browser-window-created', (event, win) => {
+    // Skip dev tools for task widget window
+    if (win.title === 'Super Productivity Task Widget') {
+      return;
+    }
+
     if (opts.showDevTools) {
       win.webContents.once('devtools-opened', () => {
         // Workaround for https://github.com/electron/electron/issues/13095
@@ -114,5 +137,3 @@ export const initDebug = (opts, isAddReload) => {
     }
   });
 };
-
-

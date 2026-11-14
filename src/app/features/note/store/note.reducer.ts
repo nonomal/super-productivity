@@ -1,36 +1,41 @@
-import { createEntityAdapter, EntityAdapter, EntityState } from '@ngrx/entity';
-import { Note } from '../note.model';
+import { createEntityAdapter, EntityAdapter } from '@ngrx/entity';
+import { Note, NoteState } from '../note.model';
 import {
   addNote,
-  addNotes,
-  clearNotes,
   deleteNote,
-  deleteNotes,
-  loadNoteState,
+  moveNoteToOtherProject,
   updateNote,
   updateNoteOrder,
-  updateNotes,
-  upsertNote,
-  upsertNotes
 } from './note.actions';
-import { Action, createFeatureSelector, createReducer, createSelector, on } from '@ngrx/store';
-
-export type NoteState = EntityState<Note>;
+import {
+  Action,
+  createFeatureSelector,
+  createReducer,
+  createSelector,
+  on,
+} from '@ngrx/store';
+import { loadAllData } from '../../../root-store/meta/load-all-data.action';
+import { devError } from '../../../util/dev-error';
+import { WorkContextType } from '../../work-context/work-context.model';
+import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
 
 export const adapter: EntityAdapter<Note> = createEntityAdapter<Note>();
 
-export const initialNoteState: NoteState = adapter.getInitialState({});
+export const initialNoteState: NoteState = adapter.getInitialState({
+  todayOrder: [],
+});
 
-export const {
-  selectIds,
-  selectEntities,
-  selectAll,
-  selectTotal,
-} = adapter.getSelectors();
+export const { selectIds, selectEntities, selectAll, selectTotal } =
+  adapter.getSelectors();
 export const NOTE_FEATURE_NAME = 'note';
 export const selectNoteFeatureState = createFeatureSelector<NoteState>(NOTE_FEATURE_NAME);
 
 export const selectAllNotes = createSelector(selectNoteFeatureState, selectAll);
+export const selectNoteTodayOrder = createSelector(
+  selectNoteFeatureState,
+  (state: NoteState) => state.todayOrder,
+);
+
 export const selectNoteById = createSelector(
   selectNoteFeatureState,
   (state: NoteState, props: { id: string }): Note => {
@@ -39,54 +44,101 @@ export const selectNoteById = createSelector(
       throw new Error('No note');
     }
     return n;
-  }
+  },
+);
+
+export const selectNotesById = createSelector(
+  selectNoteFeatureState,
+  (state: NoteState, props: { ids: string[] }): Note[] =>
+    props.ids.map((id: string) => {
+      const note = state.entities[id];
+      if (!note) {
+        devError('Note data not found for ' + id);
+      }
+      return note as Note;
+    }),
 );
 
 const _reducer = createReducer<NoteState>(
   initialNoteState,
 
-  on(loadNoteState, (state, payload) => ({
-    ...state,
-    ...payload.state,
-  })),
+  // META ACTIONS
+  // ------------
+  on(loadAllData, (state, { appDataComplete }) =>
+    appDataComplete.note ? appDataComplete.note : state,
+  ),
 
-  on(updateNoteOrder, (state, payload) => ({
-    ...state,
-    ids: payload.ids
-  })),
+  on(TaskSharedActions.deleteProject, (state, { noteIds }) => {
+    return adapter.removeMany(noteIds, {
+      ...state,
+      todayOrder: state.todayOrder.filter((idI) => !noteIds.includes(idI)),
+    });
+  }),
 
-  on(addNote, (state, payload) => ({
+  on(updateNoteOrder, (state, { ids, activeContextType }) =>
+    activeContextType !== WorkContextType.PROJECT
+      ? {
+          ...state,
+          // A reorder changes positions, not membership. Pins added after the
+          // order was captured stay at the front, as they do when pinning last.
+          todayOrder: [
+            ...state.todayOrder.filter((id) => !ids.includes(id)),
+            ...ids.filter((id) => state.todayOrder.includes(id)),
+          ],
+        }
+      : state,
+  ),
+
+  on(addNote, (state, { note }) => ({
     ...state,
     entities: {
       ...state.entities,
-      [payload.note.id]: payload.note
+      [note.id]: note,
     },
     // add to top rather than bottom
-    ids: [payload.note.id, ...state.ids] as string[] | number[]
+    ids: [note.id, ...state.ids],
+    todayOrder: note.isPinnedToToday ? [note.id, ...state.todayOrder] : state.todayOrder,
   })),
 
-  on(upsertNote, (state, {note}) => adapter.upsertOne(note, state)),
+  on(updateNote, (state, { note }) => {
+    if ('isPinnedToToday' in note.changes) {
+      // A pin prepends only an absent note: replay applies a rejected pin and
+      // then its reissue.
+      const isListed = state.todayOrder.includes(note.id as string);
+      return {
+        ...state,
+        ...adapter.updateOne(note, state),
+        todayOrder: !note.changes.isPinnedToToday
+          ? state.todayOrder.filter((id) => id !== note.id)
+          : isListed
+            ? state.todayOrder
+            : [note.id as string, ...state.todayOrder],
+      };
+    }
+    return adapter.updateOne(note, state);
+  }),
 
-  on(addNotes, (state, {notes}) => adapter.addMany(notes, state)),
+  on(deleteNote, (state, { id }) => {
+    return {
+      ...adapter.removeOne(id, state),
+      todayOrder: state.todayOrder.filter((i) => i !== id),
+    };
+  }),
 
-  on(upsertNotes, (state, {notes}) => adapter.upsertMany(notes, state)),
-
-  on(updateNote, (state, {note}) => adapter.updateOne(note, state)),
-
-  on(updateNotes, (state, {notes}) => adapter.updateMany(notes, state)),
-
-  on(deleteNote, (state, {id}) => adapter.removeOne(id, state)),
-
-  on(deleteNotes, (state, {ids}) => adapter.removeMany(ids, state)),
-
-  on(clearNotes, (state) => adapter.removeAll(state)),
+  on(moveNoteToOtherProject, (state, { targetProjectId, note }) =>
+    adapter.updateOne(
+      {
+        id: note.id,
+        changes: {
+          projectId: targetProjectId,
+        },
+      },
+      state,
+    ),
+  ),
 );
 
-export function noteReducer(
+export const noteReducer = (
   state: NoteState = initialNoteState,
-  action: Action
-): NoteState {
-  return _reducer(state, action);
-}
-
-
+  action: Action,
+): NoteState => _reducer(state, action);

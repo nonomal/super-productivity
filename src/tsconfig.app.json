@@ -1,16 +1,24 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "../out-tsc/app",
+    "outDir": "../.tmp/out-tsc/app",
     "types": [],
-    "strict": true
+    "strict": true,
+    "allowSyntheticDefaultImports": true
   },
-  "files": [
-    "main.ts",
-    "polyfills.ts"
+  "files": ["main.ts", "polyfills.ts"],
+  "include": ["app/**/*.ts"],
+  "exclude": [
+    "**/*.spec.ts",
+    "**/*.worker.ts",
+    "**/__mocks__/**",
+    "**/testing/**",
+    "**/test-utils.ts",
+    "app/util/**/*.ts"
   ],
   "angularCompilerOptions": {
     "fullTemplateTypeCheck": true,
-    "strictInjectionParameters": true
+    "strictInjectionParameters": true,
+    "strictTemplates": false
   }
 }

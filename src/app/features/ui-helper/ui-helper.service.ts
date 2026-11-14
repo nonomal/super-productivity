@@ -1,97 +1,133 @@
-import { Inject, Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { loadFromRealLs, saveToRealLs } from '../../core/persistence/local-storage';
-import { LS_LOCAL_UI_HELPER } from '../../core/persistence/ls-keys.const';
+import { LS } from '../../core/persistence/storage-keys.const';
 import { DOCUMENT } from '@angular/common';
 import { LocalUiHelperSettings } from './ui-helper.model';
 import { UI_LOCAL_HELPER_DEFAULT } from './ui-helper.const';
-import { ElectronService } from '../../core/electron/electron.service';
-import { IPC } from '../../../../electron/ipc-events.const';
-import { IS_ELECTRON } from '../../app.constants';
+import { IS_ELECTRON, IS_ELECTRON_TOKEN } from '../../app.constants';
 import { fromEvent } from 'rxjs';
 import { throttleTime } from 'rxjs/operators';
-import { ipcRenderer, webFrame } from 'electron';
+import { Log } from '../../core/log';
 
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class UiHelperService {
-  private _webFrame: typeof webFrame = (this._electronService.webFrame as typeof webFrame);
+  private _document = inject<Document>(DOCUMENT);
+  private _isElectron = inject(IS_ELECTRON_TOKEN);
 
-  constructor(
-    @Inject(DOCUMENT) private _document: Document,
-    private _electronService: ElectronService,
-  ) {
-  }
-
-  initElectron() {
+  initElectron(): void {
     this._initMousewheelZoomForElectron();
   }
 
-  zoomTo(zoomFactor: number) {
+  zoomTo(zoomFactor: number): void {
     if (Number.isNaN(zoomFactor)) {
-      console.error('Invalid zoom factor', zoomFactor);
+      Log.err('Invalid zoom factor', zoomFactor);
       return;
     }
 
-    this._webFrame.setZoomFactor(zoomFactor);
-    this._updateLocalUiHelperSettings({zoomFactor});
+    window.ea.setZoomFactor(this._zoomFactorMinMax(zoomFactor));
+    this._updateLocalUiHelperSettings({ zoomFactor });
   }
 
-  zoomBy(zoomBy: number) {
+  zoomBy(zoomBy: number): void {
     if (Number.isNaN(zoomBy)) {
-      console.error('Invalid zoom factor', zoomBy);
+      // eslint-disable-next-line local-rules/no-user-content-in-logs -- grandfathered log baseline (2026-09), not yet triaged
+      Log.err('Invalid zoom factor', zoomBy);
       return;
     }
-    const currentZoom = this._webFrame.getZoomFactor();
+    const currentZoom = window.ea.getZoomFactor();
+    Log.log({ currentZoom });
+
     const zoomFactor = currentZoom + zoomBy;
 
-    this._webFrame.setZoomFactor(zoomFactor);
-    this._updateLocalUiHelperSettings({zoomFactor});
+    window.ea.setZoomFactor(this._zoomFactorMinMax(zoomFactor));
+    this._updateLocalUiHelperSettings({ zoomFactor });
   }
 
-  focusApp() {
+  focusApp(): void {
     if (IS_ELECTRON) {
-
-      //  otherwise the last focused task get's focused again leading to unintended keyboard events
+      //  otherwise the last focused task gets focused again leading to unintended keyboard events
       if (document.activeElement) {
         (document.activeElement as HTMLElement).blur();
       }
 
-      (this._electronService.ipcRenderer as typeof ipcRenderer).send(IPC.SHOW_OR_FOCUS);
+      window.ea.showOrFocus();
     } else {
-      console.error('Cannot execute focus app window in browser');
+      Log.err('Cannot execute focus app window in browser');
     }
   }
 
-  private _initMousewheelZoomForElectron() {
+  /**
+   * Focus app after a delay to prevent accidental input.
+   * Used for "surprise" focus scenarios (tracking reminder, idle, take-a-break)
+   * where user might still be typing in another app.
+   *
+   * The 1500ms delay gives users time to finish typing after notification appears.
+   * Based on user feedback in issue #5762 where immediate focus caused unintended input.
+   *
+   * `isReminder` makes the main process raise the window without taking focus on
+   * Windows, where focus-stealing prevention otherwise keeps it behind (#10410).
+   */
+  focusAppAfterNotification(opts?: { isReminder?: boolean }): void {
+    if (!this._isElectron) {
+      return;
+    }
+
+    // Delay focus to prevent accidental input if user is typing in another app.
+    // 1500ms gives users time to finish typing after notification appears.
+    const FOCUS_DELAY_MS = 1500;
+    // Small delay after focus to let window activation complete before blurring
+    const BLUR_DELAY_MS = 100;
+
+    setTimeout(() => {
+      window.ea.showOrFocus(opts);
+      // Blur after focus to prevent any task input from receiving keystrokes
+      setTimeout(() => {
+        if (document.activeElement && document.activeElement !== document.body) {
+          (document.activeElement as HTMLElement).blur();
+        }
+      }, BLUR_DELAY_MS);
+    }, FOCUS_DELAY_MS);
+  }
+
+  private _zoomFactorMinMax(zoomFactor: number): number {
+    zoomFactor = Math.min(Math.max(zoomFactor, 0.1), 4);
+    zoomFactor = Math.round(zoomFactor * 1000) / 1000;
+    return zoomFactor;
+  }
+
+  private _initMousewheelZoomForElectron(): void {
     const ZOOM_DELTA = 0.025;
 
     // set initial zoom
     this.zoomTo(this._getLocalUiHelperSettings().zoomFactor);
 
-    fromEvent(this._document, 'mousewheel').pipe(
-      throttleTime(20)
-    ).subscribe((event: any) => {
-      if (event && event.ctrlKey) {
-        // this does not prevent scrolling unfortunately
-        // event.preventDefault();
+    fromEvent(this._document, 'mousewheel')
+      .pipe(throttleTime(20))
+      .subscribe((event: any) => {
+        if (event && event.ctrlKey) {
+          // this does not prevent scrolling unfortunately
+          // event.preventDefault();
 
-        let zoomFactor = this._webFrame.getZoomFactor();
-        if (event.deltaY > 0) {
-          zoomFactor -= ZOOM_DELTA;
-        } else if (event.deltaY < 0) {
-          zoomFactor += ZOOM_DELTA;
+          let zoomFactor = window.ea.getZoomFactor();
+          if (event.deltaY > 0) {
+            zoomFactor -= ZOOM_DELTA;
+          } else if (event.deltaY < 0) {
+            zoomFactor += ZOOM_DELTA;
+          }
+          this.zoomTo(zoomFactor);
         }
-        zoomFactor = Math.min(Math.max(zoomFactor, 0.1), 4);
-        this.zoomTo(zoomFactor);
-      }
-    });
+      });
   }
 
   private _getLocalUiHelperSettings(): LocalUiHelperSettings {
-    return loadFromRealLs(LS_LOCAL_UI_HELPER) as LocalUiHelperSettings || UI_LOCAL_HELPER_DEFAULT;
+    return (
+      (loadFromRealLs(LS.LOCAL_UI_HELPER) as LocalUiHelperSettings) ||
+      UI_LOCAL_HELPER_DEFAULT
+    );
   }
 
-  private _updateLocalUiHelperSettings(newCfg: Partial<LocalUiHelperSettings>) {
-    saveToRealLs(LS_LOCAL_UI_HELPER, {
+  private _updateLocalUiHelperSettings(newCfg: Partial<LocalUiHelperSettings>): void {
+    saveToRealLs(LS.LOCAL_UI_HELPER, {
       ...this._getLocalUiHelperSettings(),
       ...newCfg,
     });

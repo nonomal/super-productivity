@@ -1,9 +1,11 @@
 import { Dictionary, EntityState } from '@ngrx/entity';
 import { arrayToDictionary } from './array-to-dictionary';
 
-export const fakeEntityStateFromArray = <T>(items: { [key: string]: any }[]): EntityState<T> => {
-  const dict = arrayToDictionary(items) as Dictionary<T>;
-  const ids = items.map(item => item.id);
+export const fakeEntityStateFromArray = <T extends { id: string | number }>(
+  items: Partial<T>[],
+): EntityState<T> => {
+  const dict = arrayToDictionary(items as T[]) as Dictionary<T>;
+  const ids = items.map((item) => (item as T).id) as string[] | number[];
   return {
     entities: dict,
     ids,
@@ -11,7 +13,7 @@ export const fakeEntityStateFromArray = <T>(items: { [key: string]: any }[]): En
 };
 
 export const fakeEntityStateFromNumbersArray = <T>(...nrs: number[]): EntityState<T> => {
-  const items: any = nrs.map(nr => ({id: '_' + nr}));
+  const items = nrs.map((nr) => ({ id: '_' + nr }));
 
   const dict = arrayToDictionary(items) as Dictionary<T>;
   return {
@@ -19,4 +21,3 @@ export const fakeEntityStateFromNumbersArray = <T>(...nrs: number[]): EntityStat
     ids: Object.keys(dict),
   };
 };
-

@@ -1,0 +1,282 @@
+name: Build and Push SuperSync Docker Image
+
+on:
+  # A master push that changes the image inputs runs the gate suites below and
+  # publishes `latest` only if they pass for that commit.
+  push:
+    branches:
+      - master
+    paths:
+      - '.dockerignore'
+      - '.github/workflows/supersync-docker.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'packages/shared-schema/**'
+      - 'packages/sync-core/**'
+      - 'packages/super-sync-server/**'
+  # Publishing a release publishes `supersync:vX.Y.Z`. The run uses the workflow
+  # file at the tag, so tags cut before this job existed need a release_tag dispatch.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      no_cache:
+        description: 'Build without cache (master image only)'
+        required: false
+        type: boolean
+        default: true
+      release_tag:
+        description: 'Existing vX.Y.Z tag to publish as supersync:vX.Y.Z; leave empty for the master image'
+        required: false
+        type: string
+        default: ''
+
+# Master runs publish the same mutable `latest` tag, so only the newest may push:
+# a newer image push cancels the older run, including its gate suites.
+# Release runs get their own group per tag and are never canceled by master pushes.
+concurrency:
+  group: ${{ (github.event.release.tag_name || inputs.release_tag) && format('supersync-release-{0}', github.event.release.tag_name || inputs.release_tag) || 'supersync-docker-publish' }}
+  cancel-in-progress: ${{ !(github.event.release.tag_name || inputs.release_tag) }}
+
+jobs:
+  # Gate for the master image. `latest` is the default self-hosted image
+  # (packages/super-sync-server/docker-compose.yml), so a master push publishes it
+  # only after both suites pass in this run, i.e. for the commit being built.
+  # A master workflow_dispatch skips them and publishes at once (manual override);
+  # release images are not gated.
+  server-tests:
+    name: Gate (server tests)
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/supersync-server-tests.yml
+
+  # Only the SuperSync E2E shards of the sync E2E workflow. WebDAV does not test the
+  # image. The released-client job is left out until it is stable on master: it was
+  # red in 6 of 32 master runs from test defects (measured 2026-11), and a gate that
+  # is often red for other reasons gets bypassed. No secrets are passed; the only
+  # ones the workflow reads are the optional Unsplash build keys. A push that also
+  # matches that workflow's own paths runs the full suite there as well.
+  sync-e2e:
+    name: Gate (SuperSync E2E)
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/e2e-scheduled.yml
+    with:
+      supersync_only: true
+
+  build-and-push:
+    name: Build and Push to GHCR
+    needs: [server-tests, sync-e2e]
+    # `!cancelled()` replaces the implicit success() so that a dispatch builds although
+    # the suites were skipped. A push must therefore check both results itself: a
+    # failed, cancelled or skipped suite publishes nothing. The ungated dispatch is
+    # limited to master, like the release dispatch below: from another branch it
+    # would publish that branch's code as `latest`.
+    if: >-
+      !cancelled() && (
+        (github.event_name == 'push' && needs.server-tests.result == 'success' && needs.sync-e2e.result == 'success') ||
+        (github.event_name == 'workflow_dispatch' && inputs.release_tag == '' && github.ref == 'refs/heads/master')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            ghcr.io:443
+            registry.npmjs.org:443
+            objects.githubusercontent.com:443
+
+      - name: Check out the repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reconfigure git to use HTTP authentication
+        run: >
+          git config --global url."https://github.com/".insteadOf
+          ssh://git@github.com/
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags)
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302
+        with:
+          images: ghcr.io/super-productivity/supersync
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix={{branch}}-
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Resolve image source revision
+        id: source-ref
+        shell: bash
+        run: |
+          revision="$(git log -1 --format=%H -- \
+            .dockerignore \
+            .github/workflows/supersync-docker.yml \
+            package.json \
+            package-lock.json \
+            packages/shared-schema \
+            packages/sync-core \
+            packages/super-sync-server)"
+          if [ -z "$revision" ]; then
+            echo "Could not resolve SuperSync image source revision" >&2
+            exit 1
+          fi
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./packages/super-sync-server/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VCS_REF=${{ steps.source-ref.outputs.revision }}
+          no-cache: ${{ github.event_name == 'workflow_dispatch' && inputs.no_cache || false }}
+          # arm64 runs under BuildKit's bundled QEMU; only the runtime stage is
+          # emulated because the builder stage pins $BUILDPLATFORM.
+          platforms: linux/amd64,linux/arm64
+          # Nobody consumes provenance attestations (deploys verify the VCS_REF
+          # revision label instead), so skip them rather than add a third untagged
+          # child per build to the index.
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image digest
+        run: echo "Image pushed with digest ${{ steps.meta.outputs.tags }}"
+
+      # Keep the registry from accumulating an image per master push forever. 15
+      # newest tagged images ≈ weeks of rollback targets at the current push cadence.
+      # Each build is a multi-arch index with untagged per-arch children, so a
+      # version-counting prune could delete children of a kept index. This action
+      # counts tagged images and deletes children only with their parent.
+      # delete-untagged collects children orphaned when cancel-in-progress kills a
+      # push between the per-arch manifests and the index; validate warns if any
+      # kept index is missing a platform child.
+      # exclude-tags keeps every release image; only master builds count toward 15.
+      # Requires the package to grant this repo write access (it does — this same
+      # workflow publishes it with GITHUB_TOKEN).
+      - name: Prune old package versions
+        if: github.event_name == 'push'
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          packages: supersync
+          exclude-tags: v*
+          keep-n-tagged: 15
+          delete-untagged: true
+          delete-ghost-images: true
+          delete-partial-images: true
+          validate: true
+
+  # Publishes the image a released checkout expects: deploy.sh compares the image's
+  # revision label with the image-input revision of the checked-out tag. The master
+  # job's prune excludes `v*` tags, so release images are kept. Re-running for a tag
+  # rebuilds and overwrites that tag.
+  release-image:
+    name: Build and Push release image to GHCR
+    if: (github.event_name == 'release' && !github.event.release.prerelease) || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '' && github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+          allowed-endpoints: >
+            api.github.com:443
+            github.com:443
+            ghcr.io:443
+            registry.npmjs.org:443
+            objects.githubusercontent.com:443
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          RAW_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          if [[ ! "$RAW_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must look like vX.Y.Z, got: $RAW_TAG" >&2
+            exit 1
+          fi
+          echo "tag=$RAW_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reconfigure git to use HTTP authentication
+        run: >
+          git config --global url."https://github.com/".insteadOf
+          ssh://git@github.com/
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Same computation as the master job and deploy.sh, run on the tag's tree.
+      - name: Resolve image source revision
+        id: source-ref
+        shell: bash
+        run: |
+          revision="$(git log -1 --format=%H -- \
+            .dockerignore \
+            .github/workflows/supersync-docker.yml \
+            package.json \
+            package-lock.json \
+            packages/shared-schema \
+            packages/sync-core \
+            packages/super-sync-server)"
+          if [ -z "$revision" ]; then
+            echo "Could not resolve SuperSync image source revision" >&2
+            exit 1
+          fi
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      # Releases are rare; build uncached so the image depends only on the tag.
+      - name: Build and push Docker image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./packages/super-sync-server/Dockerfile
+          push: true
+          tags: ghcr.io/super-productivity/supersync:${{ steps.tag.outputs.tag }}
+          build-args: |
+            VCS_REF=${{ steps.source-ref.outputs.revision }}
+          no-cache: true
+          platforms: linux/amd64,linux/arm64
+          provenance: false

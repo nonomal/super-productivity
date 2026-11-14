@@ -1,63 +1,104 @@
-import { Action } from '@ngrx/store';
+import { createAction, props } from '@ngrx/store';
 import { Update } from '@ngrx/entity';
 import { TaskRepeatCfg } from '../task-repeat-cfg.model';
+import { PersistentActionMeta } from '../../../op-log/core/persistent-action.interface';
+import { OpType } from '../../../op-log/core/operation.types';
+import { clearedFieldsProps } from '../../../util/cleared-update-fields';
 
-export enum TaskRepeatCfgActionTypes {
-  'AddTaskRepeatCfgToTask' = '[TaskRepeatCfg][Task] Add TaskRepeatCfg to Task',
-  'UpdateTaskRepeatCfg' = '[TaskRepeatCfg] Update TaskRepeatCfg',
-  'UpdateTaskRepeatCfgs' = '[TaskRepeatCfg] Update multiple TaskRepeatCfgs',
-  'UpsertTaskRepeatCfg' = '[TaskRepeatCfg] Upsert TaskRepeatCfg',
-  'DeleteTaskRepeatCfg' = '[TaskRepeatCfg] Delete TaskRepeatCfg',
-  'DeleteTaskRepeatCfgs' = '[TaskRepeatCfg] Delete multiple TaskRepeatCfgs',
-}
+export const addTaskRepeatCfgToTask = createAction(
+  '[TaskRepeatCfg][Task] Add TaskRepeatCfg to Task',
+  (cfgProps: {
+    taskId: string;
+    taskRepeatCfg: TaskRepeatCfg;
+    startTime?: string;
+    remindAt?: string;
+  }) => ({
+    ...cfgProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK_REPEAT_CFG',
+      entityId: cfgProps.taskRepeatCfg.id,
+      opType: OpType.Create,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class AddTaskRepeatCfgToTask implements Action {
-  readonly type: string = TaskRepeatCfgActionTypes.AddTaskRepeatCfgToTask;
+export const updateTaskRepeatCfg = createAction(
+  '[TaskRepeatCfg] Update TaskRepeatCfg',
+  (cfgProps: {
+    taskRepeatCfg: Update<TaskRepeatCfg>;
+    isAskToUpdateAllTaskInstances?: boolean;
+  }) => ({
+    ...cfgProps,
+    // `changes: { someField: undefined }` loses the key at JSON.stringify on
+    // every sync path; list cleared keys out-of-band so replay restores them
+    // (issue #9776 — e.g. a cleared startTime never synced).
+    ...clearedFieldsProps(cfgProps.taskRepeatCfg.changes),
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK_REPEAT_CFG',
+      entityId: cfgProps.taskRepeatCfg.id as string,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { taskId: string; taskRepeatCfg: TaskRepeatCfg }) {
-  }
-}
+export const updateTaskRepeatCfgs = createAction(
+  '[TaskRepeatCfg] Update multiple TaskRepeatCfgs',
+  (cfgProps: { ids: string[]; changes: Partial<TaskRepeatCfg> }) => ({
+    ...cfgProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK_REPEAT_CFG',
+      entityIds: cfgProps.ids,
+      opType: OpType.Update,
+      isBulk: true,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class UpdateTaskRepeatCfg implements Action {
-  readonly type: string = TaskRepeatCfgActionTypes.UpdateTaskRepeatCfg;
+// Upsert is typically used for sync/import, so no persistence metadata
+export const upsertTaskRepeatCfg = createAction(
+  '[TaskRepeatCfg] Upsert TaskRepeatCfg',
+  props<{ taskRepeatCfg: TaskRepeatCfg }>(),
+);
 
-  constructor(public payload: { taskRepeatCfg: Update<TaskRepeatCfg> }) {
-  }
-}
+export const deleteTaskRepeatCfg = createAction(
+  '[TaskRepeatCfg] Delete TaskRepeatCfg',
+  (cfgProps: { id: string }) => ({
+    ...cfgProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK_REPEAT_CFG',
+      entityId: cfgProps.id,
+      opType: OpType.Delete,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class UpdateTaskRepeatCfgs implements Action {
-  readonly type: string = TaskRepeatCfgActionTypes.UpdateTaskRepeatCfgs;
+export const deleteTaskRepeatCfgs = createAction(
+  '[TaskRepeatCfg] Delete multiple TaskRepeatCfgs',
+  (cfgProps: { ids: string[] }) => ({
+    ...cfgProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK_REPEAT_CFG',
+      entityIds: cfgProps.ids,
+      opType: OpType.Delete,
+      isBulk: true,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { ids: string[]; changes: Partial<TaskRepeatCfg> }) {
-  }
-}
-
-export class UpsertTaskRepeatCfg implements Action {
-  readonly type: string = TaskRepeatCfgActionTypes.UpsertTaskRepeatCfg;
-
-  constructor(public payload: { taskRepeatCfg: TaskRepeatCfg }) {
-  }
-}
-
-export class DeleteTaskRepeatCfg implements Action {
-  readonly type: string = TaskRepeatCfgActionTypes.DeleteTaskRepeatCfg;
-
-  constructor(public payload: { id: string }) {
-  }
-}
-
-export class DeleteTaskRepeatCfgs implements Action {
-  readonly type: string = TaskRepeatCfgActionTypes.DeleteTaskRepeatCfgs;
-
-  constructor(public payload: { ids: string[] }) {
-  }
-}
-
-export type TaskRepeatCfgActions
-  = AddTaskRepeatCfgToTask
-  | UpdateTaskRepeatCfg
-  | UpdateTaskRepeatCfgs
-  | UpsertTaskRepeatCfg
-  | DeleteTaskRepeatCfg
-  | DeleteTaskRepeatCfgs
-  ;
+export const deleteTaskRepeatCfgInstance = createAction(
+  '[TaskRepeatCfg] Delete Single Instance',
+  (cfgProps: { repeatCfgId: string; dateStr: string }) => ({
+    ...cfgProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK_REPEAT_CFG',
+      entityId: cfgProps.repeatCfgId,
+      opType: OpType.Update, // Deleting an instance updates the cfg's excluded dates
+    } satisfies PersistentActionMeta,
+  }),
+);

@@ -1,14 +1,22 @@
-<div *ngIf="(tags && tags.length) || (projectTag)"
-     @expandFade
-     [class.isDisableEdit]="isDisableEdit"
-     class="tags-container">
-  <div [@standardList]="tags.length"
-       class="tags">
-    <tag (click)="editTags()"
-         *ngIf="(projectTag$|async) as projectTag"
-         [tag]="projectTag"></tag>
-    <tag (click)="editTags()"
-         *ngFor="let tag of tags; trackBy: trackByFn"
-         [tag]="tag"></tag>
+@if (tags()?.length > 0 || indicatorChips().length > 0) {
+  <div class="tags-container">
+    <div class="tags">
+      @for (chip of indicatorChips(); track $index) {
+        <tag [tag]="chip"></tag>
+      }
+      @for (tag of tags(); track tag.id) {
+        @if (tag.id === projectId() && isProjectTagClickable()) {
+          <!-- preventDefault on mousedown keeps focus off the row: its focusin re-targets an open detail panel. openProject blurs instead. -->
+          <tag
+            class="project-tag"
+            [tag]="tag"
+            (mousedown)="$event.preventDefault()"
+            (click)="openProject($event, tag.id)"
+          ></tag>
+        } @else {
+          <tag [tag]="tag"></tag>
+        }
+      }
+    </div>
   </div>
-</div>
+}

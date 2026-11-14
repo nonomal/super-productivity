@@ -1,104 +1,133 @@
-import { Injectable } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { select, Store } from '@ngrx/store';
-import { AddMetric, DeleteMetric, UpdateMetric, UpsertMetric } from './store/metric.actions';
-import { combineLatest, Observable, of } from 'rxjs';
-import { LineChartData, Metric, MetricState, PieChartData } from './metric.model';
-import { getWorklogStr } from '../../util/get-work-log-str';
 import {
-  selectImprovementCountsPieChartData,
-  selectMetricById, selectMetricFeatureState,
+  addMetric,
+  deleteMetric,
+  updateMetric,
+  upsertMetric,
+  logFocusSession,
+} from './store/metric.actions';
+import { Observable } from 'rxjs';
+import { LineChartData, Metric, MetricState } from './metric.model';
+import {
+  selectMetricById,
   selectMetricHasData,
-  selectObstructionCountsPieChartData,
-  selectProductivityHappinessLineChartData
+  selectFocusSessionLineChartData,
+  selectFocusSessionsByDay,
+  selectSimpleCounterClickCounterLineChartData,
+  selectSimpleCounterStopWatchLineChartData,
+  selectAllMetrics,
+  selectEvaluationLineChartData,
 } from './store/metric.selectors';
-import { map, switchMap } from 'rxjs/operators';
+import { map } from 'rxjs/operators';
 import { DEFAULT_METRIC_FOR_DAY } from './metric.const';
-import {
-  selectCheckedImprovementIdsForDay,
-  selectRepeatedImprovementIds
-} from './improvement/store/improvement.reducer';
+import { DateService } from 'src/app/core/date/date.service';
+
+const MIN_FOCUS_SESSION_DURATION = 1000;
 
 @Injectable({
   providedIn: 'root',
 })
 export class MetricService {
-  // metrics$: Observable<Metric[]> = this._store$.pipe(select(selectAllMetrics));
-  hasData$: Observable<boolean> = this._store$.pipe(select(selectMetricHasData));
-  state$: Observable<MetricState> = this._store$.pipe(select(selectMetricFeatureState));
-  // lastTrackedMetric$: Observable<Metric> = this._store$.pipe(select(selectLastTrackedMetric));
-  improvementCountsPieChartData$: Observable<PieChartData | null> = this._store$.pipe(select(selectImprovementCountsPieChartData));
-  obstructionCountsPieChartData$: Observable<PieChartData | null> = this._store$.pipe(select(selectObstructionCountsPieChartData));
+  private _store$ = inject<Store<MetricState>>(Store);
+  private _dateService = inject(DateService);
 
-  // productivityHappinessLineChartData$: Observable<LineChartData> = this._store$.pipe(select(selectProductivityHappinessLineChartDataComplete));
+  hasData = toSignal(this._store$.pipe(select(selectMetricHasData)), {
+    initialValue: false,
+  });
 
-  constructor(
-    private _store$: Store<MetricState>,
-  ) {
-  }
+  focusSessionsByDay = toSignal(this._store$.pipe(select(selectFocusSessionsByDay)), {
+    initialValue: {} as Record<string, { count: number; total: number }>,
+  });
 
-  // getMetricForDay$(id: string = getWorklogStr()): Observable<Metric> {
-  //   if (!id) {
-  //     throw new Error('No valid id provided');
-  //   }
-  //   return this._store$.pipe(select(selectMetricById, {id}), take(1));
-  // }
-
-  getMetricForDayOrDefaultWithCheckedImprovements$(day: string = getWorklogStr()): Observable<Metric> {
-    return this._store$.pipe(select(selectMetricById, {id: day})).pipe(
-      switchMap((metric) => {
+  getMetricForDay$(day: string = this._dateService.todayStr()): Observable<Metric> {
+    return this._store$.pipe(select(selectMetricById, { id: day })).pipe(
+      map((metric) => {
         return metric
-          ? of(metric)
-          : combineLatest([
-            this._store$.pipe(select(selectCheckedImprovementIdsForDay, {day})),
-            this._store$.pipe(select(selectRepeatedImprovementIds)),
-          ]).pipe(
-            map(([checkedImprovementIds, repeatedImprovementIds]) => {
-              return {
-                id: day,
-                ...DEFAULT_METRIC_FOR_DAY,
-                improvements: checkedImprovementIds || [],
-                improvementsTomorrow: repeatedImprovementIds || [],
-              };
-            })
-          );
+          ? {
+              ...metric,
+              focusSessions: metric.focusSessions ?? [],
+              reflections: metric.reflections ?? [],
+            }
+          : {
+              id: day,
+              ...DEFAULT_METRIC_FOR_DAY,
+              focusSessions: [],
+              reflections: [],
+            };
       }),
     );
   }
 
-  addMetric(metric: Metric) {
-    this._store$.dispatch(new AddMetric({
-      metric: {
-        ...metric,
-        id: metric.id || getWorklogStr(),
-      }
-    }));
+  addMetric(metric: Metric): void {
+    this._store$.dispatch(
+      addMetric({
+        metric: {
+          ...metric,
+          id: metric.id || this._dateService.todayStr(),
+        },
+      }),
+    );
   }
 
-  deleteMetric(id: string) {
-    this._store$.dispatch(new DeleteMetric({id}));
+  deleteMetric(id: string): void {
+    this._store$.dispatch(deleteMetric({ id }));
   }
 
-  updateMetric(id: string, changes: Partial<Metric>) {
-    this._store$.dispatch(new UpdateMetric({metric: {id, changes}}));
+  updateMetric(id: string, changes: Partial<Metric>): void {
+    this._store$.dispatch(updateMetric({ metric: { id, changes } }));
   }
 
-  upsertMetric(metric: Metric) {
-    this._store$.dispatch(new UpsertMetric({metric}));
+  upsertMetric(metric: Metric): void {
+    this._store$.dispatch(upsertMetric({ metric }));
   }
 
-  upsertTodayMetric(metricIn: Partial<Metric>) {
-    const day = getWorklogStr();
+  upsertTodayMetric(metricIn: Partial<Metric>): void {
+    const day = this._dateService.todayStr();
     const metric = {
       id: day,
       ...DEFAULT_METRIC_FOR_DAY,
       ...metricIn,
     } as Metric;
-    this._store$.dispatch(new UpsertMetric({metric}));
+    this._store$.dispatch(upsertMetric({ metric }));
+  }
+
+  logFocusSession(duration: number, day: string = this._dateService.todayStr()): void {
+    if (!duration || duration < MIN_FOCUS_SESSION_DURATION) {
+      return;
+    }
+
+    this._store$.dispatch(
+      logFocusSession({
+        day,
+        duration,
+      }),
+    );
   }
 
   // STATISTICS
-  getProductivityHappinessChartData$(howMany: number = 20): Observable<LineChartData> {
-    return this._store$.pipe(select(selectProductivityHappinessLineChartData, {howMany}));
+  getSimpleClickCounterMetrics$(howMany: number = 60): Observable<LineChartData> {
+    return this._store$.select(selectSimpleCounterClickCounterLineChartData, { howMany });
   }
 
+  getSimpleCounterStopwatchMetrics$(howMany: number = 60): Observable<LineChartData> {
+    return this._store$.select(selectSimpleCounterStopWatchLineChartData, { howMany });
+  }
+
+  getFocusSessionMetrics$(howMany: number = 60): Observable<LineChartData> {
+    return this._store$.select(selectFocusSessionLineChartData, { howMany });
+  }
+
+  getEvaluationMetrics$(): Observable<LineChartData> {
+    return this._store$.select(selectEvaluationLineChartData);
+  }
+
+  getAllMetrics$(): Observable<Metric[]> {
+    return this._store$.select(selectAllMetrics);
+  }
+
+  getFocusSummaryForDay(day: string): { count: number; total: number } | undefined {
+    return this.focusSessionsByDay()[day];
+  }
 }

@@ -1,0 +1,764 @@
+import { TestBed } from '@angular/core/testing';
+import { CdkDragMove, CdkDragRelease, CdkDragStart } from '@angular/cdk/drag-drop';
+import { provideMockStore, MockStore } from '@ngrx/store/testing';
+import { ScheduleWeekDragService } from './schedule-week-drag.service';
+import { GlobalConfigService } from '../../config/global-config.service';
+import { TaskCopy, TaskReminderOptionId } from '../../tasks/task.model';
+import { DEFAULT_GLOBAL_CONFIG } from '../../config/default-global-config.const';
+import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
+import { signal } from '@angular/core';
+import { GlobalConfigState } from '../../config/global-config.model';
+import { ScheduleEvent } from '../schedule.model';
+import { FH, SVEType, T_ID_PREFIX } from '../schedule.const';
+import { PlannerActions } from '../../planner/store/planner.actions';
+import { CalendarEventActionsService } from '../../calendar-integration/calendar-event-actions.service';
+import { DateService } from '../../../core/date/date.service';
+
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+const TEN_MINUTES_MS = 10 * 60 * 1000;
+const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+const FORTY_MINUTES_MS = 40 * 60 * 1000;
+const TWO_WEEKS_MS = 14 * 24 * ONE_HOUR_MS;
+
+describe('ScheduleWeekDragService', () => {
+  let service: ScheduleWeekDragService;
+  let store: MockStore;
+  let dispatchSpy: jasmine.Spy;
+  let calendarEventActionsSpy: jasmine.SpyObj<CalendarEventActionsService>;
+
+  const createMockGlobalConfigService = (
+    defaultTaskRemindOption: TaskReminderOptionId = TaskReminderOptionId.AtStart,
+  ): Partial<GlobalConfigService> => {
+    const mockCfg = {
+      ...DEFAULT_GLOBAL_CONFIG,
+      reminder: {
+        ...DEFAULT_GLOBAL_CONFIG.reminder,
+        defaultTaskRemindOption,
+      },
+    } as GlobalConfigState;
+
+    return {
+      cfg: signal(mockCfg),
+    };
+  };
+
+  const setupTestBed = (
+    defaultTaskRemindOption: TaskReminderOptionId = TaskReminderOptionId.AtStart,
+  ): void => {
+    TestBed.configureTestingModule({
+      providers: [
+        ScheduleWeekDragService,
+        provideMockStore(),
+        {
+          provide: CalendarEventActionsService,
+          useValue: jasmine.createSpyObj<CalendarEventActionsService>(
+            'CalendarEventActionsService',
+            ['canMoveEvent', 'moveToStartTime'],
+          ),
+        },
+        {
+          provide: GlobalConfigService,
+          useValue: createMockGlobalConfigService(defaultTaskRemindOption),
+        },
+        {
+          provide: DateService,
+          useValue: { todayStr: () => '2026-03-20' },
+        },
+      ],
+    });
+
+    service = TestBed.inject(ScheduleWeekDragService);
+    store = TestBed.inject(MockStore);
+    calendarEventActionsSpy = TestBed.inject(
+      CalendarEventActionsService,
+    ) as jasmine.SpyObj<CalendarEventActionsService>;
+    calendarEventActionsSpy.canMoveEvent.and.returnValue(true);
+    calendarEventActionsSpy.moveToStartTime.and.resolveTo(true);
+    dispatchSpy = spyOn(store, 'dispatch').and.callThrough();
+  };
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('captures today when unscheduling a timed task but leaving it in Today', () => {
+    setupTestBed();
+    const sourceEvent = createTaskEvent({ id: 'task-1', dueWithTime: Date.now() });
+
+    (
+      service as unknown as {
+        _handleUnschedule: (task: TaskCopy, sourceEvent: ScheduleEvent) => void;
+      }
+    )._handleUnschedule(sourceEvent.data as TaskCopy, sourceEvent);
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      TaskSharedActions.unscheduleTask({
+        id: 'task-1',
+        isLeaveInToday: true,
+        today: '2026-03-20',
+      }),
+    );
+  });
+
+  const createTaskEvent = (
+    task: Partial<{ id: string; title: string; dueWithTime: number }> = {},
+  ): ScheduleEvent =>
+    ({
+      id: task.id ?? 'task-1',
+      type: SVEType.ScheduledTask,
+      style: '',
+      startHours: 10,
+      timeLeftInHours: 0.5,
+      data: {
+        id: task.id ?? 'task-1',
+        title: task.title ?? 'Test Task',
+        timeEstimate: THIRTY_MINUTES_MS,
+        dueWithTime: task.dueWithTime,
+      },
+    }) as ScheduleEvent;
+
+  describe('drag release reorder behavior', () => {
+    const createReleaseEvent = (
+      sourceEvent: ScheduleEvent,
+      sourceEl: HTMLElement,
+    ): CdkDragRelease<ScheduleEvent> =>
+      ({
+        source: {
+          data: sourceEvent,
+          element: {
+            nativeElement: sourceEl,
+          },
+          reset: jasmine.createSpy('reset'),
+        },
+        event: new MouseEvent('mouseup', { clientX: 10, clientY: 120 }),
+      }) as unknown as CdkDragRelease<ScheduleEvent>;
+
+    const createScheduleEventElement = (
+      taskId: string,
+      className = SVEType.TaskPlannedForDay,
+    ): HTMLElement => {
+      const el = document.createElement('schedule-event');
+      el.id = `${T_ID_PREFIX}${taskId}`;
+      el.classList.add(className);
+      return el;
+    };
+
+    beforeEach(() => {
+      setupTestBed();
+    });
+
+    it('should still reorder when shift-dropping over a normal schedule task', () => {
+      const sourceEl = createScheduleEventElement('source', SVEType.ScheduledTask);
+      const targetEl = createScheduleEventElement('target');
+      spyOn(document, 'elementsFromPoint').and.returnValue([targetEl]);
+
+      service.setShiftMode(true);
+      service.handleDragReleased(
+        createReleaseEvent(createTaskEvent({ id: 'source' }), sourceEl),
+      );
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        jasmine.objectContaining({
+          type: PlannerActions.moveBeforeTask.type,
+          toTaskId: 'target',
+        }),
+      );
+    });
+  });
+
+  describe('tray drops', () => {
+    const DAY = '2026-01-05';
+    const OTHER_DAY = '2026-01-06';
+    // 288 rows of 1px: 12px per hour
+    const GRID_HEIGHT_PX = 24 * FH;
+    let grid: HTMLElement;
+    let col: HTMLElement;
+    let tray: HTMLElement;
+
+    const createTrayChipEvent = (task: Partial<TaskCopy>): ScheduleEvent =>
+      ({
+        id: 'chip-1',
+        type: SVEType.TaskPlannedForDay,
+        style: '',
+        startHours: 0,
+        timeLeftInHours: 1,
+        plannedForDay: DAY,
+        isInTray: true,
+        data: {
+          id: 'chip-1',
+          title: 'Chip',
+          timeEstimate: ONE_HOUR_MS,
+          timeSpent: 0,
+          subTaskIds: [],
+          dueDay: DAY,
+          ...task,
+        },
+      }) as ScheduleEvent;
+
+    // drags to the pointer and returns the release
+    const dragTo = (
+      event: ScheduleEvent,
+      elementsAtPoint: HTMLElement[],
+      pointer: { x: number; y: number },
+    ): (() => void) => {
+      const source = {
+        data: event,
+        element: { nativeElement: document.createElement('div') },
+        reset: jasmine.createSpy('reset'),
+      };
+      spyOn(document, 'elementsFromPoint').and.returnValue(elementsAtPoint);
+      service.handleDragStarted({ source } as unknown as CdkDragStart<ScheduleEvent>);
+      service.handleDragMoved({
+        source,
+        pointerPosition: pointer,
+      } as unknown as CdkDragMove<ScheduleEvent>);
+      return () =>
+        service.handleDragReleased({
+          source,
+          event: new MouseEvent('mouseup', { clientX: pointer.x, clientY: pointer.y }),
+        } as unknown as CdkDragRelease<ScheduleEvent>);
+    };
+
+    beforeEach(() => {
+      setupTestBed();
+      grid = document.createElement('div');
+      grid.style.cssText = `position: fixed; top: 0; left: 0; width: 200px; height: ${GRID_HEIGHT_PX}px`;
+      document.body.appendChild(grid);
+      col = document.createElement('div');
+      col.classList.add('col');
+      col.setAttribute('data-day', DAY);
+      tray = document.createElement('div');
+      tray.setAttribute('data-tray-day', OTHER_DAY);
+      service.setGridContainer(() => grid);
+      service.setDaysToShowAccessor(() => [DAY, OTHER_DAY]);
+    });
+
+    afterEach(() => {
+      service.destroy();
+      grid.remove();
+    });
+
+    it('plans a timed task for the day of the tray it is dropped on', () => {
+      const dueWithTime = new Date(2026, 0, 5, 10, 0).getTime();
+      // the sticky header covers the grid: the column is under the pointer too
+      const release = dragTo(createTaskEvent({ id: 'timed', dueWithTime }), [tray, col], {
+        x: 50,
+        y: 20,
+      });
+
+      expect(service.dragOverTrayDay()).toBe(OTHER_DAY);
+      expect(service.dragPreviewStyle()).toBeNull();
+
+      release();
+
+      expect(dispatchSpy).toHaveBeenCalledTimes(1);
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        jasmine.objectContaining({
+          type: PlannerActions.planTaskForDay.type,
+          day: OTHER_DAY,
+          isAddToTop: false,
+        }),
+      );
+      expect(service.dragOverTrayDay()).toBeNull();
+    });
+
+    it('neither highlights nor moves a calendar event released on a tray', () => {
+      const calEv = {
+        id: 'calendar-1::event-1',
+        type: SVEType.CalendarEvent,
+        style: '',
+        startHours: 10,
+        timeLeftInHours: 0.5,
+        data: {
+          id: 'calendar-1::event-1',
+          calProviderId: 'provider-1',
+          issueProviderKey: 'plugin:google-calendar-provider',
+          title: 'Meeting',
+          start: new Date(2026, 0, 5, 10, 0).getTime(),
+          duration: ONE_HOUR_MS,
+          icon: 'event',
+        },
+      } as ScheduleEvent;
+      const release = dragTo(calEv, [tray, col], { x: 50, y: 20 });
+
+      expect(service.dragOverTrayDay()).toBeNull();
+      expect(service.dragPreviewStyle()).toBeNull();
+
+      release();
+
+      expect(calendarEventActionsSpy.moveToStartTime).not.toHaveBeenCalled();
+      expect(dispatchSpy).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when a chip is dropped back on its own tray', () => {
+      tray.setAttribute('data-tray-day', DAY);
+
+      dragTo(createTrayChipEvent({}), [tray, col], { x: 50, y: 20 })();
+
+      expect(dispatchSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not unschedule a chip that is released outside the grid', () => {
+      const release = dragTo(createTrayChipEvent({}), [document.body], {
+        x: 500,
+        y: 500,
+      });
+
+      expect(service.dragPreviewContext()).toBeNull();
+
+      release();
+
+      expect(dispatchSpy).not.toHaveBeenCalled();
+    });
+
+    describe('released over content below the date row', () => {
+      // e.g. the day panel's overdue list: sticky like the tray, and the grid
+      // goes on underneath it
+      let below: HTMLElement;
+
+      beforeEach(() => {
+        below = document.createElement('div');
+        below.setAttribute('weekHeaderBelow', '');
+      });
+
+      it('leaves a chip in its tray', () => {
+        const release = dragTo(createTrayChipEvent({}), [below, col], { x: 50, y: 126 });
+
+        expect(service.dragPreviewStyle()).toBeNull();
+
+        release();
+
+        expect(dispatchSpy).not.toHaveBeenCalled();
+      });
+
+      it('leaves a timed task at its time', () => {
+        const dueWithTime = new Date(2026, 0, 5, 14, 0).getTime();
+
+        dragTo(createTaskEvent({ id: 'timed', dueWithTime }), [below, col], {
+          x: 50,
+          y: 126,
+        })();
+
+        expect(dispatchSpy).not.toHaveBeenCalled();
+      });
+
+      it('leaves a timed task at its time while the grid is not scrolled under it', () => {
+        const dueWithTime = new Date(2026, 0, 5, 14, 0).getTime();
+
+        // scrolled to the top, the header is above the grid: outside of it
+        const release = dragTo(createTaskEvent({ id: 'timed', dueWithTime }), [below], {
+          x: 500,
+          y: 500,
+        });
+
+        expect(service.dragPreviewContext()).toBeNull();
+
+        release();
+
+        expect(dispatchSpy).not.toHaveBeenCalled();
+      });
+    });
+
+    it('schedules a chip at the time it is dropped on', () => {
+      // 1h chip centred on the pointer: its top edge is 6 rows above y=126, at 10:00
+      dragTo(createTrayChipEvent({}), [col], { x: 50, y: 126 })();
+
+      expect(dispatchSpy).toHaveBeenCalledTimes(1);
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        jasmine.objectContaining({
+          type: TaskSharedActions.scheduleTaskWithTime.type,
+          dueWithTime: new Date(2026, 0, 5, 10, 0).getTime(),
+        }),
+      );
+    });
+  });
+
+  describe('calendar event drag release', () => {
+    const createReleaseEvent = (
+      sourceEvent: ScheduleEvent,
+      sourceEl: HTMLElement,
+    ): CdkDragRelease<ScheduleEvent> =>
+      ({
+        source: {
+          data: sourceEvent,
+          element: {
+            nativeElement: sourceEl,
+          },
+          reset: jasmine.createSpy('reset'),
+        },
+        event: new MouseEvent('mouseup', { clientX: 125, clientY: 120 }),
+      }) as unknown as CdkDragRelease<ScheduleEvent>;
+
+    const createCalendarEvent = (): ScheduleEvent =>
+      ({
+        id: 'calendar-1::event-1',
+        type: SVEType.CalendarEvent,
+        style: '',
+        startHours: 10,
+        timeLeftInHours: 0.5,
+        data: {
+          id: 'calendar-1::event-1',
+          calProviderId: 'provider-1',
+          issueProviderKey: 'plugin:google-calendar-provider',
+          title: 'Meeting',
+          start: new Date('2026-03-20T10:00:00Z').getTime(),
+          duration: THIRTY_MINUTES_MS,
+          icon: 'event',
+        },
+      }) as ScheduleEvent;
+
+    beforeEach(() => {
+      setupTestBed();
+    });
+
+    const setupCalendarGrid = (): void => {
+      const columnEl = document.createElement('div');
+      columnEl.classList.add('col');
+      columnEl.setAttribute('data-day', '2026-03-20');
+      spyOn(document, 'elementsFromPoint').and.returnValue([columnEl]);
+
+      service.setGridContainer(() => {
+        const gridEl = document.createElement('div');
+        spyOn(gridEl, 'getBoundingClientRect').and.returnValue({
+          top: 0,
+          bottom: 24 * FH,
+          left: 0,
+          right: 200,
+          width: 200,
+          height: 24 * FH,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect);
+        return gridEl;
+      });
+      service.setDaysToShowAccessor(() => ['2026-03-20']);
+    };
+
+    it('moves plugin calendar events via the calendar action service when dropped on a time column', () => {
+      const sourceEl = document.createElement('schedule-event');
+      setupCalendarGrid();
+      service.handleDragStarted({
+        source: {
+          data: createCalendarEvent(),
+          element: { nativeElement: sourceEl },
+        },
+      } as unknown as any);
+      service.handleDragMoved({
+        source: {
+          data: createCalendarEvent(),
+          element: { nativeElement: sourceEl },
+        },
+        pointerPosition: { x: 125, y: 120 },
+      } as unknown as any);
+      service.handleDragReleased(createReleaseEvent(createCalendarEvent(), sourceEl));
+
+      expect(calendarEventActionsSpy.moveToStartTime).toHaveBeenCalledTimes(1);
+      const [calendarEvent, startMs] =
+        calendarEventActionsSpy.moveToStartTime.calls.mostRecent().args;
+      expect(calendarEvent.id).toBe('calendar-1::event-1');
+      expect(startMs).toEqual(jasmine.any(Number));
+    });
+
+    it('treats shift-drop on a calendar event as a normal timed move', () => {
+      const sourceEl = document.createElement('schedule-event');
+      setupCalendarGrid();
+
+      service.setShiftMode(true);
+      service.handleDragStarted({
+        source: {
+          data: createCalendarEvent(),
+          element: { nativeElement: sourceEl },
+        },
+      } as unknown as any);
+      service.handleDragMoved({
+        source: {
+          data: createCalendarEvent(),
+          element: { nativeElement: sourceEl },
+        },
+        pointerPosition: { x: 125, y: 120 },
+      } as unknown as any);
+      service.handleDragReleased(createReleaseEvent(createCalendarEvent(), sourceEl));
+
+      expect(calendarEventActionsSpy.moveToStartTime).toHaveBeenCalledTimes(1);
+    });
+
+    it('resets the dragged calendar event after the provider write resolves', async () => {
+      const sourceEl = document.createElement('schedule-event');
+      setupCalendarGrid();
+      const releaseEvent = createReleaseEvent(createCalendarEvent(), sourceEl);
+
+      service.handleDragStarted({
+        source: {
+          data: createCalendarEvent(),
+          element: { nativeElement: sourceEl },
+        },
+      } as unknown as any);
+      service.handleDragMoved({
+        source: {
+          data: createCalendarEvent(),
+          element: { nativeElement: sourceEl },
+        },
+        pointerPosition: { x: 125, y: 120 },
+      } as unknown as any);
+      service.handleDragReleased(releaseEvent);
+
+      expect(releaseEvent.source.reset).not.toHaveBeenCalled();
+      expect(sourceEl.style.pointerEvents).toBe('none');
+      await Promise.resolve();
+
+      expect(releaseEvent.source.reset).toHaveBeenCalled();
+      expect(sourceEl.style.transform).toBe('translate3d(0px, 0px, 0px)');
+      expect(sourceEl.style.pointerEvents).toBe('');
+    });
+
+    it('suppresses the unschedule preview when dragging a calendar event outside the grid', () => {
+      const sourceEl = document.createElement('schedule-event');
+      setupCalendarGrid();
+
+      service.handleDragStarted({
+        source: {
+          data: createCalendarEvent(),
+          element: { nativeElement: sourceEl },
+        },
+      } as unknown as any);
+      service.handleDragMoved({
+        source: {
+          data: createCalendarEvent(),
+          element: { nativeElement: sourceEl },
+        },
+        pointerPosition: { x: 125, y: 5000 },
+      } as unknown as any);
+
+      expect(service.dragPreviewContext()).toBeNull();
+    });
+
+    it('does not move calendar events when the provider is read-only', () => {
+      calendarEventActionsSpy.canMoveEvent.and.returnValue(false);
+      const sourceEl = document.createElement('schedule-event');
+      const columnEl = document.createElement('div');
+      columnEl.classList.add('col');
+      columnEl.setAttribute('data-day', '2026-03-20');
+      spyOn(document, 'elementsFromPoint').and.returnValue([columnEl]);
+
+      service.setGridContainer(() => {
+        const gridEl = document.createElement('div');
+        spyOn(gridEl, 'getBoundingClientRect').and.returnValue({
+          top: 0,
+          bottom: 24 * FH,
+          left: 0,
+          right: 200,
+          width: 200,
+          height: 24 * FH,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect);
+        return gridEl;
+      });
+      service.setDaysToShowAccessor(() => ['2026-03-20']);
+
+      const event = createCalendarEvent();
+      service.handleDragStarted({
+        source: {
+          data: event,
+          element: { nativeElement: sourceEl },
+        },
+      } as unknown as any);
+      service.handleDragMoved({
+        source: {
+          data: event,
+          element: { nativeElement: sourceEl },
+        },
+        pointerPosition: { x: 125, y: 120 },
+      } as unknown as any);
+      service.handleDragReleased(createReleaseEvent(event, sourceEl));
+
+      expect(calendarEventActionsSpy.moveToStartTime).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('drag preview sizing', () => {
+    beforeEach(() => {
+      setupTestBed();
+    });
+
+    it('should use the full remaining task time for clipped beyond-budget events', () => {
+      const event = createTaskEvent();
+      event.isBeyondBudget = true;
+      event.timeLeftInHours = 0.25;
+      event.data = {
+        ...event.data,
+        subTaskIds: [],
+        timeEstimate: TWO_HOURS_MS,
+        timeSpent: THIRTY_MINUTES_MS,
+      } as ScheduleEvent['data'];
+
+      expect((service as any)._calculateRowSpan(event)).toBe(1.5 * FH);
+    });
+  });
+
+  describe('_scheduleTask reminder behavior (via scheduleTaskWithTime action)', () => {
+    const baseTask = {
+      id: 'task-1',
+      title: 'Test Task',
+      timeEstimate: THIRTY_MINUTES_MS,
+      dueWithTime: undefined as number | undefined,
+      reminderId: undefined as string | undefined,
+    };
+
+    it('should use default reminder option "AtStart" when scheduling new task', () => {
+      setupTestBed(TaskReminderOptionId.AtStart);
+
+      const task = { ...baseTask };
+      const scheduleTime = Date.now() + ONE_HOUR_MS;
+
+      // Access private method via any cast for testing
+      (service as any)._scheduleTask(task, scheduleTime);
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        jasmine.objectContaining({
+          type: TaskSharedActions.scheduleTaskWithTime.type,
+        }),
+      );
+
+      const dispatchedAction = dispatchSpy.calls.mostRecent().args[0];
+      // AtStart means remindAt equals scheduleTime
+      expect(dispatchedAction.remindAt).toBe(scheduleTime);
+    });
+
+    it('should use configured default reminder option "m10" (10 minutes before) when scheduling new task', () => {
+      setupTestBed(TaskReminderOptionId.m10);
+
+      const task = { ...baseTask };
+      const scheduleTime = Date.now() + ONE_HOUR_MS;
+
+      (service as any)._scheduleTask(task, scheduleTime);
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        jasmine.objectContaining({
+          type: TaskSharedActions.scheduleTaskWithTime.type,
+        }),
+      );
+
+      const dispatchedAction = dispatchSpy.calls.mostRecent().args[0];
+      // m10 means remindAt is 10 minutes before scheduleTime
+      expect(dispatchedAction.remindAt).toBe(scheduleTime - TEN_MINUTES_MS);
+    });
+
+    it('should use configured default reminder option "m30" (30 minutes before) when scheduling new task', () => {
+      setupTestBed(TaskReminderOptionId.m30);
+
+      const task = { ...baseTask };
+      const scheduleTime = Date.now() + ONE_HOUR_MS;
+
+      (service as any)._scheduleTask(task, scheduleTime);
+
+      const dispatchedAction = dispatchSpy.calls.mostRecent().args[0];
+      expect(dispatchedAction.remindAt).toBe(scheduleTime - THIRTY_MINUTES_MS);
+    });
+
+    it('should use configured default reminder option "h1" (1 hour before) when scheduling new task', () => {
+      setupTestBed(TaskReminderOptionId.h1);
+
+      const task = { ...baseTask };
+      const scheduleTime = Date.now() + TWO_HOURS_MS;
+
+      (service as any)._scheduleTask(task, scheduleTime);
+
+      const dispatchedAction = dispatchSpy.calls.mostRecent().args[0];
+      expect(dispatchedAction.remindAt).toBe(scheduleTime - ONE_HOUR_MS);
+    });
+
+    it('should not set reminder when configured default is "DoNotRemind"', () => {
+      setupTestBed(TaskReminderOptionId.DoNotRemind);
+
+      const task = { ...baseTask };
+      const scheduleTime = Date.now() + ONE_HOUR_MS;
+
+      (service as any)._scheduleTask(task, scheduleTime);
+
+      const dispatchedAction = dispatchSpy.calls.mostRecent().args[0];
+      // DoNotRemind returns undefined from remindOptionToMilliseconds
+      expect(dispatchedAction.remindAt).toBeUndefined();
+    });
+
+    it('should update existing reminder time when task already has a reminder', () => {
+      setupTestBed(TaskReminderOptionId.m30);
+
+      const task = {
+        ...baseTask,
+        dueWithTime: Date.now(),
+        reminderId: 'existing-reminder-id',
+      };
+      const newScheduleTime = Date.now() + ONE_HOUR_MS;
+
+      (service as any)._scheduleTask(task, newScheduleTime);
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        jasmine.objectContaining({
+          type: TaskSharedActions.reScheduleTaskWithTime.type,
+        }),
+      );
+
+      const dispatchedAction = dispatchSpy.calls.mostRecent().args[0];
+      // When task already has a reminder, it updates to the new schedule time directly
+      expect(dispatchedAction.remindAt).toBe(newScheduleTime);
+    });
+
+    for (const [label, lead] of [
+      ['30 minutes', THIRTY_MINUTES_MS],
+      ['1 week', 7 * 24 * ONE_HOUR_MS],
+    ] as const) {
+      it(`should keep a reminder ${label} before when moving a scheduled task`, () => {
+        setupTestBed(TaskReminderOptionId.AtStart);
+        const dueWithTime = Date.now() + TWO_WEEKS_MS;
+        const task = { ...baseTask, dueWithTime, remindAt: dueWithTime - lead };
+        const newScheduleTime = dueWithTime + ONE_HOUR_MS;
+
+        (service as any)._scheduleTask(task, newScheduleTime);
+
+        const dispatchedAction = dispatchSpy.calls.mostRecent().args[0];
+        expect(dispatchedAction.type).toBe(TaskSharedActions.reScheduleTaskWithTime.type);
+        expect(dispatchedAction.remindAt).toBe(newScheduleTime - lead);
+      });
+    }
+
+    it('should snap a reminder lead to its reminder option when moving a scheduled task, like the planner', () => {
+      setupTestBed(TaskReminderOptionId.AtStart);
+      const dueWithTime = Date.now() + TWO_WEEKS_MS;
+      // e.g. a snoozed reminder: 40 minutes before counts as "30 minutes before"
+      const task = { ...baseTask, dueWithTime, remindAt: dueWithTime - FORTY_MINUTES_MS };
+      const newScheduleTime = dueWithTime + ONE_HOUR_MS;
+
+      (service as any)._scheduleTask(task, newScheduleTime);
+
+      const dispatchedAction = dispatchSpy.calls.mostRecent().args[0];
+      expect(dispatchedAction.remindAt).toBe(newScheduleTime - THIRTY_MINUTES_MS);
+    });
+
+    it('should not add reminder when task already has schedule but no reminder', () => {
+      setupTestBed(TaskReminderOptionId.m30);
+
+      const task = {
+        ...baseTask,
+        dueWithTime: Date.now(),
+        reminderId: undefined,
+      };
+      const newScheduleTime = Date.now() + ONE_HOUR_MS;
+
+      (service as any)._scheduleTask(task, newScheduleTime);
+
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        jasmine.objectContaining({
+          type: TaskSharedActions.reScheduleTaskWithTime.type,
+        }),
+      );
+
+      const dispatchedAction = dispatchSpy.calls.mostRecent().args[0];
+      // Task had schedule but no reminder, so remindAt should be undefined
+      expect(dispatchedAction.remindAt).toBeUndefined();
+    });
+  });
+});

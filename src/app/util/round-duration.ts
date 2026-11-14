@@ -1,22 +1,37 @@
-import * as moment from 'moment';
-import { Duration } from 'moment';
-import { RoundTimeOption } from '../features/project/project.model';
+import { RoundTimeOption } from './round-time-option.model';
 
-export const roundDuration = (val: Duration | number, roundTo: RoundTimeOption, isRoundUp: boolean = false): Duration => {
-  const value = (typeof val === 'number')
-    ? val
-    : val.asMilliseconds();
+// Simple Duration interface to replace moment.Duration
+export interface SimpleDuration {
+  asMilliseconds(): number;
+}
+
+export const roundDuration = (
+  val: SimpleDuration | number,
+  roundTo: RoundTimeOption,
+  isRoundUp: boolean = false,
+): SimpleDuration => {
+  const value = typeof val === 'number' ? val : val.asMilliseconds();
   const roundedMs = roundDurationVanilla(value, roundTo, isRoundUp);
-  return moment.duration({millisecond: roundedMs});
+  return {
+    asMilliseconds: () => roundedMs,
+  };
 };
 
-export const roundMinutes = (minutes: number, factor: number, isRoundUp: boolean): number => {
-  return (isRoundUp)
+export const roundMinutes = (
+  minutes: number,
+  factor: number,
+  isRoundUp: boolean,
+): number => {
+  return isRoundUp
     ? Math.ceil(minutes / factor) * factor
     : Math.round(minutes / factor) * factor;
 };
 
-export const roundDurationVanilla = (val: number, roundTo: RoundTimeOption, isRoundUp: boolean = false): number => {
+export const roundDurationVanilla = (
+  val: number,
+  roundTo: RoundTimeOption,
+  isRoundUp: boolean = false,
+): number => {
   const asMinutes = parseMsToMinutes(val);
   const A_MINUTE = 60000;
 

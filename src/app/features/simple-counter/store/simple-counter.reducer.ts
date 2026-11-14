@@ -1,134 +1,359 @@
 import { createEntityAdapter, EntityAdapter } from '@ngrx/entity';
-import * as simpleCounterActions from './simple-counter.actions';
-import { Action, createFeatureSelector, createReducer, createSelector, on } from '@ngrx/store';
-import { SimpleCounter, SimpleCounterState, SimpleCounterType } from '../simple-counter.model';
+import {
+  Action,
+  createFeatureSelector,
+  createReducer,
+  createSelector,
+  on,
+} from '@ngrx/store';
+import {
+  SimpleCounter,
+  SimpleCounterState,
+  SimpleCounterType,
+} from '../simple-counter.model';
 import { DEFAULT_SIMPLE_COUNTERS } from '../simple-counter.const';
 import { arrayToDictionary } from '../../../util/array-to-dictionary';
 import { loadAllData } from '../../../root-store/meta/load-all-data.action';
-import { getWorklogStr } from '../../../util/get-work-log-str';
 import { updateAllInDictionary } from '../../../util/update-all-in-dictionary';
-import { migrateSimpleCounterState } from '../migrate-simple-counter-state.util';
-import { Update } from '@ngrx/entity/src/models';
+import { Update } from '@ngrx/entity';
+import {
+  addSimpleCounter,
+  decreaseSimpleCounterCounterToday,
+  deleteSimpleCounter,
+  deleteSimpleCounters,
+  increaseSimpleCounterCounterToday,
+  setSimpleCounterCounterForDate,
+  setSimpleCounterCounterOff,
+  setSimpleCounterCounterOn,
+  setSimpleCounterCounterToday,
+  syncSimpleCounterTime,
+  tickSimpleCounterLocal,
+  toggleSimpleCounterCounter,
+  turnOffAllSimpleCounterCounters,
+  updateAllSimpleCounters,
+  updateSimpleCounter,
+  updateSimpleCounterOrder,
+  upsertSimpleCounter,
+} from './simple-counter.actions';
+import { PersistentActionMeta } from '../../../op-log/core/persistent-action.interface';
 
 export const SIMPLE_COUNTER_FEATURE_NAME = 'simpleCounter';
 
 export const adapter: EntityAdapter<SimpleCounter> = createEntityAdapter<SimpleCounter>();
-export const selectSimpleCounterFeatureState = createFeatureSelector<SimpleCounterState>(SIMPLE_COUNTER_FEATURE_NAME);
-export const {selectIds, selectEntities, selectAll, selectTotal} = adapter.getSelectors();
-export const selectAllSimpleCounters = createSelector(selectSimpleCounterFeatureState, selectAll);
+export const selectSimpleCounterFeatureState = createFeatureSelector<SimpleCounterState>(
+  SIMPLE_COUNTER_FEATURE_NAME,
+);
+export const { selectIds, selectEntities, selectAll, selectTotal } =
+  adapter.getSelectors();
+
+export const selectAllSimpleCounters = createSelector(
+  selectSimpleCounterFeatureState,
+  selectAll,
+);
+export const selectSimpleCounterEntities = createSelector(
+  selectSimpleCounterFeatureState,
+  selectEntities,
+);
 export const selectSimpleCounterById = createSelector(
   selectSimpleCounterFeatureState,
-  (state: SimpleCounterState, props: { id: string }) => state.entities[props.id]
+  (state: SimpleCounterState, props: { id: string }) => state.entities[props.id],
 );
 
-export const initialSimpleCounterState: SimpleCounterState = adapter.getInitialState<SimpleCounterState>({
-  ids: DEFAULT_SIMPLE_COUNTERS.map(value => value.id),
-  entities: arrayToDictionary<SimpleCounter>(DEFAULT_SIMPLE_COUNTERS),
-});
+export const selectHasSimpleCounterData = createSelector(
+  selectSimpleCounterFeatureState,
+  (state: SimpleCounterState): boolean => state.ids.length > 0,
+);
+
+export const selectEnabledSimpleCounters = createSelector(
+  selectAllSimpleCounters,
+  (items): SimpleCounter[] => items.filter((item) => item.isEnabled),
+);
+
+export const selectEnabledAndToggledSimpleCounters = createSelector(
+  selectAllSimpleCounters,
+  (items) => items && items.filter((item) => item.isEnabled && item.isOn),
+);
+
+export const selectEnabledSimpleStopWatchCounters = createSelector(
+  selectEnabledSimpleCounters,
+  (items): SimpleCounter[] =>
+    items.filter((item) => item.type === SimpleCounterType.StopWatch && item.isEnabled),
+);
+
+export const initialSimpleCounterState: SimpleCounterState =
+  adapter.getInitialState<SimpleCounterState>({
+    ids: DEFAULT_SIMPLE_COUNTERS.map((value) => value.id),
+    entities: arrayToDictionary<SimpleCounter>(DEFAULT_SIMPLE_COUNTERS),
+  });
 
 const disableIsOnForAll = (state: SimpleCounterState): SimpleCounterState => {
   return {
     ...state,
-    entities: updateAllInDictionary<SimpleCounter>(state.entities, {isOn: false})
+    entities: updateAllInDictionary<SimpleCounter>(state.entities, { isOn: false }),
   };
+};
+
+const normalizeCountOnDay = (state: SimpleCounterState): SimpleCounterState => {
+  const entities: SimpleCounterState['entities'] = {};
+  for (const id of Object.keys(state.entities)) {
+    const entity = state.entities[id];
+    if (entity) {
+      entities[id] = entity.countOnDay ? entity : { ...entity, countOnDay: {} };
+    }
+  }
+  return { ...state, entities };
 };
 
 const _reducer = createReducer<SimpleCounterState>(
   initialSimpleCounterState,
 
-  on(loadAllData, (oldState, {appDataComplete}) =>
+  on(loadAllData, (oldState, { appDataComplete }) =>
     appDataComplete.simpleCounter
       ? {
-        // ...appDataComplete.simpleCounter,
-        ...migrateSimpleCounterState(
-          disableIsOnForAll(
-            appDataComplete.simpleCounter
-          )
-        ),
-      }
-      : oldState
+          ...disableIsOnForAll(normalizeCountOnDay(appDataComplete.simpleCounter)),
+        }
+      : oldState,
   ),
 
-  on(simpleCounterActions.updateAllSimpleCounters, (state, {items}) => {
-    const allNewItemIds = items.map(item => item.id);
-    const itemIdsToRemove = state.ids.filter(id => !allNewItemIds.includes(id));
+  on(updateAllSimpleCounters, (state, { items }) => {
+    // Use a Set to ensure unique IDs while preserving order
+    const allNewItemIds = [...new Set(items.map((item) => item.id))];
+    const itemIdsToRemove = state.ids.filter((id) => !allNewItemIds.includes(id));
 
     let newState = state;
     newState = adapter.removeMany(itemIdsToRemove, newState);
     newState = adapter.upsertMany(items, newState);
-    return newState;
+    // Explicitly set ids order to match items order (upsertMany doesn't preserve order)
+    return { ...newState, ids: allNewItemIds };
   }),
 
-  on(simpleCounterActions.setSimpleCounterCounterToday, (state, {id, newVal}) => adapter.updateOne({
-    id,
-    changes: {
-      countOnDay: {
-        ...(state.entities[id] as SimpleCounter).countOnDay,
-        [getWorklogStr()]: newVal,
+  on(updateSimpleCounterOrder, (state, { ids }) => {
+    // Filter out stale/deleted IDs that no longer exist in current state
+    const stateIdSet = new Set(state.ids as string[]);
+    const validIds = ids.filter((id) => stateIdSet.has(id));
+    if (validIds.length === 0) {
+      return state;
+    }
+    const enabledSet = new Set(validIds);
+    const result: string[] = [];
+    let enabledIdx = 0;
+    for (const id of state.ids) {
+      if (enabledSet.has(id as string)) {
+        result.push(validIds[enabledIdx++]);
+      } else {
+        result.push(id as string);
       }
     }
-  }, state)),
-
-  on(simpleCounterActions.increaseSimpleCounterCounterToday, (state, {id, increaseBy}) => {
-    const todayStr = getWorklogStr();
-    const oldEntity = state.entities[id] as SimpleCounter;
-    const currentTotalCount = oldEntity.countOnDay || {};
-    const currentVal = currentTotalCount[todayStr] || 0;
-    const newValForToday = currentVal + increaseBy;
-    return adapter.updateOne({
-      id,
-      changes: {
-        countOnDay: {
-          ...currentTotalCount,
-          [todayStr]: newValForToday,
-        }
-      }
-    }, state);
+    return { ...state, ids: result };
   }),
 
-  on(simpleCounterActions.toggleSimpleCounterCounter, (state, {id}) => adapter.updateOne({
-    id,
-    changes: {isOn: !(state.entities[id] as SimpleCounter).isOn}
-  }, state)),
+  on(setSimpleCounterCounterToday, (state, { id, newVal, today }) => {
+    const entity = state.entities[id];
+    if (!entity) {
+      return state;
+    }
+    return adapter.updateOne(
+      {
+        id,
+        changes: {
+          countOnDay: {
+            ...entity.countOnDay,
+            // counts and durations can never be negative
+            [today]: Math.max(0, newVal),
+          },
+        },
+      },
+      state,
+    );
+  }),
 
-  on(simpleCounterActions.setSimpleCounterCounterOn, (state, {id}) => adapter.updateOne({
-    id,
-    changes: {isOn: true}
-  }, state)),
+  on(setSimpleCounterCounterForDate, (state, { id, newVal, date }) => {
+    const entity = state.entities[id];
+    if (!entity) {
+      return state;
+    }
+    return adapter.updateOne(
+      {
+        id,
+        changes: {
+          countOnDay: {
+            ...entity.countOnDay,
+            // counts and durations can never be negative
+            [date]: Math.max(0, newVal),
+          },
+        },
+      },
+      state,
+    );
+  }),
 
-  on(simpleCounterActions.setSimpleCounterCounterOff, (state, {id}) => adapter.updateOne({
-    id,
-    changes: {isOn: false}
-  }, state)),
+  // Non-persistent local UI update for ClickCounter
+  // Sync happens via setSimpleCounterCounterToday with absolute value
+  on(increaseSimpleCounterCounterToday, (state, { id, increaseBy, today }) => {
+    const oldEntity = state.entities[id];
+    if (!oldEntity) {
+      return state;
+    }
+    const currentTotalCount = oldEntity.countOnDay || {};
+    const currentVal = currentTotalCount[today] || 0;
+    const newValForToday = currentVal + increaseBy;
+    return adapter.updateOne(
+      {
+        id,
+        changes: {
+          countOnDay: {
+            ...currentTotalCount,
+            [today]: newValForToday,
+          },
+        },
+      },
+      state,
+    );
+  }),
 
-  on(simpleCounterActions.addSimpleCounter, (state, {simpleCounter}) => adapter.addOne(simpleCounter, state)),
+  // Non-persistent local UI update for ClickCounter
+  on(decreaseSimpleCounterCounterToday, (state, { id, decreaseBy, today }) => {
+    const oldEntity = state.entities[id];
+    if (!oldEntity) {
+      return state;
+    }
+    const currentTotalCount = oldEntity.countOnDay || {};
+    const currentVal = currentTotalCount[today] || 0;
+    const newValForToday = Math.max(0, currentVal - decreaseBy);
+    return adapter.updateOne(
+      {
+        id,
+        changes: {
+          countOnDay: {
+            ...currentTotalCount,
+            [today]: newValForToday,
+          },
+        },
+      },
+      state,
+    );
+  }),
 
-  on(simpleCounterActions.updateSimpleCounter, (state, {simpleCounter}) => adapter.updateOne(simpleCounter, state)),
+  // Non-persistent local tick for StopWatch - immediate UI update
+  on(tickSimpleCounterLocal, (state, { id, increaseBy, today }) => {
+    const oldEntity = state.entities[id];
+    if (!oldEntity) {
+      return state;
+    }
+    const currentTotalCount = oldEntity.countOnDay || {};
+    const currentVal = currentTotalCount[today] || 0;
+    const newValForToday = currentVal + increaseBy;
+    return adapter.updateOne(
+      {
+        id,
+        changes: {
+          countOnDay: {
+            ...currentTotalCount,
+            [today]: newValForToday,
+          },
+        },
+      },
+      state,
+    );
+  }),
 
-  on(simpleCounterActions.upsertSimpleCounter, (state, {simpleCounter}) => adapter.upsertOne(simpleCounter, state)),
+  // Batched sync for StopWatch time - only applies for remote actions
+  on(syncSimpleCounterTime, (state, action) => {
+    // Local dispatch: no-op (state already updated by tickSimpleCounterLocal)
+    if (!(action.meta as PersistentActionMeta).isRemote) {
+      return state;
+    }
 
-  on(simpleCounterActions.deleteSimpleCounter, (state, {id}) => adapter.removeOne(id, state)),
+    const { id, date, duration } = action;
+    const counter = state.entities[id];
+    if (!counter) {
+      return state;
+    }
 
-  on(simpleCounterActions.deleteSimpleCounters, (state, {ids}) => adapter.removeMany(ids, state)),
+    const currentTotalCount = counter.countOnDay || {};
+    const currentVal = currentTotalCount[date] || 0;
+    return adapter.updateOne(
+      {
+        id,
+        changes: {
+          countOnDay: {
+            ...currentTotalCount,
+            [date]: currentVal + duration,
+          },
+        },
+      },
+      state,
+    );
+  }),
 
-  on(simpleCounterActions.turnOffAllSimpleCounterCounters, (state) => {
+  on(toggleSimpleCounterCounter, (state, { id }) => {
+    const entity = state.entities[id];
+    if (!entity) {
+      return state;
+    }
+    return adapter.updateOne(
+      {
+        id,
+        changes: { isOn: !entity.isOn },
+      },
+      state,
+    );
+  }),
+
+  on(setSimpleCounterCounterOn, (state, { id }) =>
+    adapter.updateOne(
+      {
+        id,
+        changes: { isOn: true },
+      },
+      state,
+    ),
+  ),
+
+  on(setSimpleCounterCounterOff, (state, { id }) =>
+    adapter.updateOne(
+      {
+        id,
+        changes: { isOn: false },
+      },
+      state,
+    ),
+  ),
+
+  on(addSimpleCounter, (state, { simpleCounter }) =>
+    adapter.addOne(simpleCounter, state),
+  ),
+
+  on(updateSimpleCounter, (state, { simpleCounter }) =>
+    adapter.updateOne(simpleCounter, state),
+  ),
+
+  on(upsertSimpleCounter, (state, { simpleCounter }) =>
+    adapter.upsertOne(simpleCounter, state),
+  ),
+
+  on(deleteSimpleCounter, (state, { id }) => adapter.removeOne(id, state)),
+
+  on(deleteSimpleCounters, (state, { ids }) => adapter.removeMany(ids, state)),
+
+  on(turnOffAllSimpleCounterCounters, (state) => {
     const updates: Update<SimpleCounter>[] = state.ids
-      .filter(id => state.entities[id]?.type === SimpleCounterType.StopWatch && state.entities[id]?.isOn)
+      .filter(
+        (id) =>
+          state.entities[id]?.type === SimpleCounterType.StopWatch &&
+          state.entities[id]?.isOn,
+      )
       .map((id: string) => ({
         id,
         changes: {
           isOn: false,
-        }
+        },
       }));
     return adapter.updateMany(updates, state);
   }),
 );
 
-export function simpleCounterReducer(
+export const simpleCounterReducer = (
   state: SimpleCounterState = initialSimpleCounterState,
   action: Action,
-): SimpleCounterState {
-  return _reducer(state, action);
-}
-
-
+): SimpleCounterState => _reducer(state, action);

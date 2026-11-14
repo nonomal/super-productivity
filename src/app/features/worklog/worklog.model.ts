@@ -1,12 +1,12 @@
-import { WorklogTask } from '../tasks/task.model';
+import { Task } from '../tasks/task.model';
 import { RoundTimeOption } from '../project/project.model';
 import { WeeksInMonth } from '../../util/get-week-in-month-model';
 
 export interface WorklogDataForDay {
   timeSpent: number;
-  task: WorklogTask;
-  parentId: string;
-  isNoRestore?: boolean;
+  task: Task;
+  parentId?: string;
+  isNoRestore: boolean;
 }
 
 export interface WorklogDay {
@@ -18,13 +18,19 @@ export interface WorklogDay {
   workEnd: number;
 }
 
-export interface WorklogWeek extends WeeksInMonth {
+export interface WorklogWeekSimple {
   weekNr: number;
   timeSpent: number;
   daysWorked: number;
   ent: {
     [key: number]: WorklogDay;
   };
+}
+
+export interface WorklogWeek extends WeeksInMonth, WorklogWeekSimple {
+  // full week range; can cross a month boundary
+  startDateStr: string;
+  endDateStr: string;
 }
 
 export interface WorklogMonth {
@@ -51,7 +57,7 @@ export interface Worklog {
 }
 
 export type WorklogColTypes =
-  'EMPTY'
+  | 'EMPTY'
   | 'DATE'
   | 'START'
   | 'END'
@@ -65,14 +71,13 @@ export type WorklogColTypes =
   | 'TIME_CLOCK'
   | 'ESTIMATE_MS'
   | 'ESTIMATE_STR'
-  | 'ESTIMATE_CLOCK'
-  ;
+  | 'ESTIMATE_CLOCK';
 
 export enum WorklogGrouping {
   DATE = 'DATE',
   PARENT = 'PARENT',
   TASK = 'TASK',
-  WORKLOG = 'WORKLOG'
+  WORKLOG = 'WORKLOG',
 }
 
 export interface WorklogExportSettingsCopy {

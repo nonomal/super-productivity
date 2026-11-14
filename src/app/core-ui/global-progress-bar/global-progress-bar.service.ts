@@ -1,63 +1,58 @@
-import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, of } from 'rxjs';
-import { delay, distinctUntilChanged, map, startWith, switchMap } from 'rxjs/operators';
-import { PROGRESS_BAR_LABEL_MAP } from './global-progress-bar.const';
-import { T } from '../../t.const';
+import { DestroyRef, inject, Injectable, signal } from '@angular/core';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { EMPTY, Observable, of, timer } from 'rxjs';
+import {
+  delay,
+  distinctUntilChanged,
+  map,
+  startWith,
+  switchMap,
+  tap,
+} from 'rxjs/operators';
+import { Log } from '../../core/log';
 
 const DELAY = 100;
+const MAX_SHOW_DURATION = 60 * 1000;
 
-@Injectable({providedIn: 'root'})
+@Injectable({ providedIn: 'root' })
 export class GlobalProgressBarService {
-  nrOfRequests$: BehaviorSubject<number> = new BehaviorSubject(0);
-  isShowGlobalProgressBar$: Observable<boolean> = this.nrOfRequests$.pipe(
-    map(nr => nr > 0),
+  private _destroyRef = inject(DestroyRef);
+
+  private _nrOfRequests = signal(0);
+
+  isShowGlobalProgressBar$: Observable<boolean> = toObservable(this._nrOfRequests).pipe(
+    map((nr) => nr > 0),
     distinctUntilChanged(),
-    switchMap((isShow) => isShow
-      ? of(true)
-      : of(false).pipe(delay(DELAY))
-    ),
+    switchMap((isShow) => (isShow ? of(true) : of(false).pipe(delay(DELAY)))),
     startWith(false),
     // @see https://blog.angular-university.io/angular-debugging/
     delay(0),
   );
 
-  private _label$: BehaviorSubject<string | null> = new BehaviorSubject<string | null>(null);
-  label$: Observable<string | null> = this._label$.pipe(
-    distinctUntilChanged(),
-    switchMap((label: string | null) => !!label
-      ? of(label)
-      : of(null).pipe(delay(DELAY))
-    ),
-    // @see https://blog.angular-university.io/angular-debugging/
-    delay(0),
+  // We don't want the bar to show forever; after 60 seconds we assume something
+  // was not counted down correctly
+  private _dirtyCountdown$ = this.isShowGlobalProgressBar$.pipe(
+    switchMap((isShow) => {
+      return isShow
+        ? timer(MAX_SHOW_DURATION).pipe(
+            tap(() => {
+              Log.err('Global progress bar was shown forever (60s). Forcing countDown!');
+              this.countDown();
+            }),
+          )
+        : EMPTY;
+    }),
   );
 
   constructor() {
+    this._dirtyCountdown$.pipe(takeUntilDestroyed(this._destroyRef)).subscribe();
   }
 
-  countUp(url: string) {
-    this.nrOfRequests$.next(this.nrOfRequests$.getValue() + 1);
-    this._label$.next(this._urlToLabel(url));
+  countUp(): void {
+    this._nrOfRequests.update((nr) => nr + 1);
   }
 
-  countDown() {
-    this.nrOfRequests$.next(Math.max(this.nrOfRequests$.getValue() - 1, 0));
-    if (this.nrOfRequests$.getValue() - 1 <= 0) {
-      this._label$.next(null);
-    }
-  }
-
-  private _urlToLabel(url: string): string {
-    const [urlWithoutParams]: string[] = url.split('?');
-
-    if (PROGRESS_BAR_LABEL_MAP[url]) {
-      return PROGRESS_BAR_LABEL_MAP[url];
-    } else {
-      const key = Object.keys(PROGRESS_BAR_LABEL_MAP).find((keyIn) => urlWithoutParams.includes(keyIn));
-      return key
-        ? PROGRESS_BAR_LABEL_MAP[key]
-        : T.GPB.UNKNOWN;
-    }
+  countDown(): void {
+    this._nrOfRequests.update((nr) => Math.max(nr - 1, 0));
   }
 }
-

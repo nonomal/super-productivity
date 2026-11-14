@@ -1,172 +1,311 @@
-import { Action } from '@ngrx/store';
+import { createAction, props } from '@ngrx/store';
 import { Update } from '@ngrx/entity';
 import { Project } from '../project.model';
-import { IssueIntegrationCfg, IssueProviderKey } from '../../issue/issue.model';
 import { WorkContextAdvancedCfgKey } from '../../work-context/work-context.model';
+import { DropListModelSource } from '../../tasks/task.model';
+import { PersistentActionMeta } from '../../../op-log/core/persistent-action.interface';
+import { OpType } from '../../../op-log/core/operation.types';
 
-export enum ProjectActionTypes {
-  'LoadProjectRelatedDataSuccess' = '[Project] Load Project related Data Success',
-  'SetCurrentProject' = '[Project] SetCurrentProject',
+export const loadProjects = createAction(
+  '[Project] Load Projects',
+  props<{ projects: Project[] }>(),
+);
 
-  // Project Actions
-  'LoadProjects' = '[Project] Load Projects',
-  'AddProject' = '[Project] Add Project',
-  'AddProjects' = '[Project] Add Projects',
-  'UpsertProject' = '[Project] Upsert Project',
-  'UpdateProject' = '[Project] Update Project',
-  'UpdateProjectWorkStart' = '[Project] Update Work Start',
-  'UpdateProjectWorkEnd' = '[Project] Update Work End',
-  'AddToProjectBreakTime' = '[Project] Add to Break Time',
-  'UpdateProjectAdvancedCfg' = '[Project] Update Project Advanced Cfg',
-  'UpdateProjectIssueProviderCfg' = '[Project] Update Project Issue Provider Cfg',
-  'DeleteProject' = '[Project] Delete Project',
-  'DeleteProjects' = '[Project] Delete Projects',
-  'ArchiveProject' = '[Project] Archive Project',
-  'UnarchiveProject' = '[Project] Unarchive Project',
-  'UpdateProjectOrder' = '[Project] Update Project Order',
-}
+export const addProject = createAction(
+  '[Project] Add Project',
+  (projectProps: { project: Project }) => ({
+    ...projectProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'PROJECT',
+      entityId: projectProps.project.id,
+      opType: OpType.Create,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class LoadProjectRelatedDataSuccess implements Action {
-  readonly type: string = ProjectActionTypes.LoadProjectRelatedDataSuccess;
+export const addProjects = createAction(
+  '[Project] Add Projects',
+  props<{ projects: Project[] }>(),
+);
 
-  constructor(public payload: { projectId: string }) {
-  }
-}
+export const updateProject = createAction(
+  '[Project] Update Project',
+  // isSkipSnack: suppress the unconditional "Project updated" snack — used by
+  // flows that surface their own outcome (e.g. the conflict-review flip).
+  (projectProps: { project: Update<Project>; isSkipSnack?: boolean }) => ({
+    ...projectProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'PROJECT',
+      entityId: projectProps.project.id as string,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class SetCurrentProject implements Action {
-  readonly type: string = ProjectActionTypes.SetCurrentProject;
-
-  constructor(public payload: any) {
-  }
-}
-
-export class LoadProjects implements Action {
-  readonly type: string = ProjectActionTypes.LoadProjects;
-
-  constructor(public payload: { projects: Project[] }) {
-  }
-}
-
-export class AddProject implements Action {
-  readonly type: string = ProjectActionTypes.AddProject;
-
-  constructor(public payload: { project: Project }) {
-  }
-}
-
-export class AddProjects implements Action {
-  readonly type: string = ProjectActionTypes.AddProjects;
-
-  constructor(public payload: { projects: Project[] }) {
-  }
-}
-
-export class UpsertProject implements Action {
-  readonly type: string = ProjectActionTypes.UpsertProject;
-
-  constructor(public payload: { projects: Project[] }) {
-  }
-}
-
-export class UpdateProject implements Action {
-  readonly type: string = ProjectActionTypes.UpdateProject;
-
-  constructor(public payload: { project: Update<Project> }) {
-  }
-}
-
-export class UpdateProjectWorkStart implements Action {
-  readonly type: string = ProjectActionTypes.UpdateProjectWorkStart;
-
-  constructor(public payload: { id: string; date: string; newVal: number }) {
-  }
-}
-
-export class UpdateProjectWorkEnd implements Action {
-  readonly type: string = ProjectActionTypes.UpdateProjectWorkEnd;
-
-  constructor(public payload: { id: string; date: string; newVal: number }) {
-  }
-}
-
-export class AddToProjectBreakTime implements Action {
-  readonly type: string = ProjectActionTypes.AddToProjectBreakTime;
-
-  constructor(public payload: { id: string; date: string; valToAdd: number }) {
-  }
-}
-
-export class UpdateProjectAdvancedCfg implements Action {
-  readonly type: string = ProjectActionTypes.UpdateProjectAdvancedCfg;
-
-  constructor(public payload: { projectId: string; sectionKey: WorkContextAdvancedCfgKey; data: any }) {
-  }
-}
-
-export class UpdateProjectIssueProviderCfg implements Action {
-  readonly type: string = ProjectActionTypes.UpdateProjectIssueProviderCfg;
-
-  constructor(public payload: {
+export const updateProjectAdvancedCfg = createAction(
+  '[Project] Update Project Advanced Cfg',
+  (projectProps: {
     projectId: string;
-    issueProviderKey: IssueProviderKey;
-    providerCfg: Partial<IssueIntegrationCfg>;
-    isOverwrite: boolean;
-  }) {
-  }
-}
+    sectionKey: WorkContextAdvancedCfgKey;
+    data: any;
+  }) => ({
+    ...projectProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'PROJECT',
+      entityId: projectProps.projectId,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class DeleteProject implements Action {
-  readonly type: string = ProjectActionTypes.DeleteProject;
+export const updateProjectOrder = createAction(
+  '[Project] Update Project Order',
+  (projectProps: { ids: string[] }) => ({
+    ...projectProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'PROJECT',
+      entityIds: projectProps.ids,
+      opType: OpType.Move,
+      isBulk: true,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { id: string }) {
-  }
-}
+export const archiveProject = createAction(
+  '[Project] Archive Project',
+  (projectProps: { id: string }) => ({
+    ...projectProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'PROJECT',
+      entityId: projectProps.id,
+      opType: OpType.Update, // Archiving is an update
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class DeleteProjects implements Action {
-  readonly type: string = ProjectActionTypes.DeleteProjects;
+export const unarchiveProject = createAction(
+  '[Project] Unarchive Project',
+  (projectProps: { id: string }) => ({
+    ...projectProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'PROJECT',
+      entityId: projectProps.id,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { ids: string[] }) {
-  }
-}
+export const completeProject = createAction(
+  '[Project] Complete Project',
+  (projectProps: { id: string; doneOn: number }) => ({
+    ...projectProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'PROJECT',
+      entityId: projectProps.id,
+      opType: OpType.Update, // Completing is an update (also flips isArchived)
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class UpdateProjectOrder implements Action {
-  readonly type: string = ProjectActionTypes.UpdateProjectOrder;
+export const reopenProject = createAction(
+  '[Project] Reopen Project',
+  (projectProps: { id: string }) => ({
+    ...projectProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'PROJECT',
+      entityId: projectProps.id,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { ids: string[] }) {
-  }
-}
+export const toggleHideFromMenu = createAction(
+  '[Project] Toggle hide from menu',
+  (projectProps: { id: string }) => ({
+    ...projectProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'PROJECT',
+      entityId: projectProps.id,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class ArchiveProject implements Action {
-  readonly type: string = ProjectActionTypes.ArchiveProject;
+// MOVE TASK ACTIONS
+// -----------------
+export const moveProjectTaskToBacklogListAuto = createAction(
+  '[Project] Auto Move Task from regular to backlog',
+  (taskProps: { taskId: string; projectId: string }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.taskId,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { id: string }) {
-  }
-}
+export const moveProjectTaskToRegularListAuto = createAction(
+  '[Project] Auto Move Task from backlog to regular',
+  (taskProps: { taskId: string; projectId: string; isMoveToTop: boolean }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.taskId,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class UnarchiveProject implements Action {
-  readonly type: string = ProjectActionTypes.UnarchiveProject;
+export const moveProjectTaskUpInBacklogList = createAction(
+  '[Project] Move Task Up in Backlog',
+  (taskProps: {
+    taskId: string;
+    workContextId: string;
+    /**
+     * Wire-frozen name: carries the NOT-done ids.
+     * See the `doneTaskIds` note in work-context-meta.actions.ts.
+     */
+    doneBacklogTaskIds: string[];
+  }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.taskId,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { id: string }) {
-  }
-}
+export const moveProjectTaskDownInBacklogList = createAction(
+  '[Project] Move Task Down in Backlog',
+  (taskProps: {
+    taskId: string;
+    workContextId: string;
+    /**
+     * Wire-frozen name: carries the NOT-done ids.
+     * See the `doneTaskIds` note in work-context-meta.actions.ts.
+     */
+    doneBacklogTaskIds: string[];
+  }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.taskId,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export type ProjectActions
-  = LoadProjects
-  | LoadProjectRelatedDataSuccess
-  | SetCurrentProject
-  | AddProject
-  | AddProjects
-  | UpsertProject
-  | UpdateProject
-  | UpdateProjectWorkStart
-  | UpdateProjectWorkEnd
-  | AddToProjectBreakTime
-  | UpdateProjectAdvancedCfg
-  | UpdateProjectIssueProviderCfg
-  | DeleteProject
-  | DeleteProjects
-  | UpdateProjectOrder
-  | ArchiveProject
-  | UnarchiveProject
-  ;
+export const moveProjectTaskToTopInBacklogList = createAction(
+  '[Project] Move Task to Top in Backlog',
+  (taskProps: {
+    taskId: string;
+    workContextId: string;
+    /**
+     * Wire-frozen name: carries the NOT-done ids.
+     * See the `doneTaskIds` note in work-context-meta.actions.ts.
+     */
+    doneBacklogTaskIds: string[];
+  }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.taskId,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
+export const moveProjectTaskToBottomInBacklogList = createAction(
+  '[Project] Move Task to Bottom in Backlog',
+  (taskProps: {
+    taskId: string;
+    workContextId: string;
+    /**
+     * Wire-frozen name: carries the NOT-done ids.
+     * See the `doneTaskIds` note in work-context-meta.actions.ts.
+     */
+    doneBacklogTaskIds: string[];
+  }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.taskId,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
+
+export const moveProjectTaskInBacklogList = createAction(
+  '[Project] Move Task in Backlog',
+  (taskProps: { taskId: string; afterTaskId: string | null; workContextId: string }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.taskId,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
+
+export const moveProjectTaskToBacklogList = createAction(
+  '[Project] Move Task from regular to backlog',
+  (taskProps: { taskId: string; afterTaskId: string | null; workContextId: string }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.taskId,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
+
+export const moveProjectTaskToRegularList = createAction(
+  '[Project] Move Task from backlog to regular',
+  (taskProps: {
+    taskId: string;
+    afterTaskId: string | null;
+    workContextId: string;
+    src: DropListModelSource;
+    target: DropListModelSource;
+  }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.taskId,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
+
+export const moveAllProjectBacklogTasksToRegularList = createAction(
+  '[Project] Move all backlog tasks to regular',
+  (taskProps: { projectId: string }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'PROJECT',
+      entityId: taskProps.projectId,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);

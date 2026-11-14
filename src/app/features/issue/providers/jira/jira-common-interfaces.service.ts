@@ -1,129 +1,125 @@
-import { Injectable } from '@angular/core';
-import { Observable, of } from 'rxjs';
+import { Injectable, inject } from '@angular/core';
+import { firstValueFrom, Observable } from 'rxjs';
+import { first, map, switchMap, tap } from 'rxjs/operators';
 import { Task } from 'src/app/features/tasks/task.model';
-import { catchError, first, map, switchMap } from 'rxjs/operators';
-import { IssueServiceInterface } from '../../issue-service-interface';
+import { BaseIssueProviderService } from '../../base/base-issue-provider.service';
+import { IssueData, SearchResultItem } from '../../issue.model';
 import { JiraApiService } from './jira-api.service';
-import { SnackService } from '../../../../core/snack/snack.service';
-import { ProjectService } from '../../../project/project.service';
-import { SearchResultItem } from '../../issue.model';
-import { JiraIssue, JiraIssueReduced } from './jira-issue/jira-issue.model';
+import { JiraIssue, JiraIssueReduced } from './jira-issue.model';
 import { TaskAttachment } from '../../../tasks/task-attachment/task-attachment.model';
-import { mapJiraAttachmentToAttachment } from './jira-issue/jira-issue-map.util';
-import { T } from '../../../../t.const';
+import { mapJiraAttachmentToAttachment } from './jira-issue-map.util';
 import { JiraCfg } from './jira.model';
+import { isJiraEnabled } from './is-jira-enabled.util';
+import { JIRA_POLL_INTERVAL } from './jira.const';
+import { assertTruthy } from '../../../../util/assert-truthy';
+import { stripTrailing } from '../../../../util/strip-trailing';
+import { IssueLog } from '../../../../core/log';
 
 @Injectable({
   providedIn: 'root',
 })
-export class JiraCommonInterfacesService implements IssueServiceInterface {
+export class JiraCommonInterfacesService extends BaseIssueProviderService<JiraCfg> {
+  private readonly _jiraApiService = inject(JiraApiService);
 
-  constructor(
-    private readonly _jiraApiService: JiraApiService,
-    private readonly _snackService: SnackService,
-    private readonly _projectService: ProjectService,
-  ) {
+  readonly providerKey = 'JIRA' as const;
+  readonly pollInterval: number = JIRA_POLL_INTERVAL;
+
+  isEnabled(cfg: JiraCfg): boolean {
+    return isJiraEnabled(cfg);
   }
 
-  // NOTE: we're using the issueKey instead of the real issueId
-  getById$(issueId: string | number, projectId: string) {
-    return this._getCfgOnce$(projectId).pipe(
-      switchMap(jiraCfg => this._jiraApiService.getIssueById$(issueId as string, jiraCfg))
-    );
+  testConnection(cfg: JiraCfg): Promise<boolean> {
+    return firstValueFrom(
+      this._jiraApiService.issuePicker$('', cfg).pipe(
+        map((res) => Array.isArray(res)),
+        first(),
+      ),
+    ).then((result) => result ?? false);
   }
 
-  // NOTE: this gives back issueKey instead of issueId
-  searchIssues$(searchTerm: string, projectId: string): Observable<SearchResultItem[]> {
-    return this._getCfgOnce$(projectId).pipe(
-      switchMap((jiraCfg) => (jiraCfg && jiraCfg.isEnabled)
-        ? this._jiraApiService.issuePicker$(searchTerm, jiraCfg).pipe(catchError(() => []))
-        : of([])
-      )
-    );
+  issueLink(issueId: string | number, issueProviderId: string): Promise<string> {
+    if (!issueId || !issueProviderId) {
+      throw new Error('No issueId or no issueProviderId');
+    }
+    return firstValueFrom(
+      this._getCfgOnce$(issueProviderId).pipe(
+        first(),
+        map(
+          (jiraCfg) =>
+            stripTrailing(jiraCfg.altPublicLinkHost || jiraCfg.host || '', '/') +
+            '/browse/' +
+            issueId,
+        ),
+      ),
+    ).then((result) => result ?? '');
   }
 
-  async refreshIssue(
-    task: Task,
-    isNotifySuccess: boolean = true,
-    isNotifyNoUpdateRequired: boolean = false
-  ): Promise<{ taskChanges: Partial<Task>; issue: JiraIssue } | null> {
-    if (!task.projectId) {
-      throw new Error('No projectId');
-    }
-    if (!task.issueId) {
-      throw new Error('No issueId');
-    }
-
-    const cfg = await this._getCfgOnce$(task.projectId).toPromise();
-    const issue = await this._jiraApiService.getIssueById$(task.issueId, cfg).toPromise() as JiraIssue;
-
-    // @see https://developer.atlassian.com/cloud/jira/platform/jira-expressions-type-reference/#date
-    const newUpdated = new Date(issue.updated).getTime();
-    const wasUpdated = newUpdated > (task.issueLastUpdated || 0);
-
-    // NOTIFICATIONS
-    if (wasUpdated && isNotifySuccess) {
-      this._snackService.open({
-        msg: T.F.JIRA.S.ISSUE_UPDATE,
-        translateParams: {
-          issueText: `${issue.key}`
-        },
-        ico: 'cloud_download',
-      });
-    } else if (isNotifyNoUpdateRequired) {
-      this._snackService.open({
-        msg: T.F.JIRA.S.ISSUE_NO_UPDATE_REQUIRED,
-        translateParams: {
-          issueText: `${issue.key}`
-        },
-        ico: 'cloud_download',
-      });
-    }
-
-    if (wasUpdated) {
-      return {
-        taskChanges: {
-          title: `${issue.key} ${issue.summary}`,
-          issueLastUpdated: newUpdated,
-          issueWasUpdated: wasUpdated,
-          // circumvent errors for old jira versions #652
-          issueAttachmentNr: issue.attachments?.length,
-          issuePoints: issue.storyPoints
-        },
-        issue,
-      };
-    }
-    return null;
+  // Override getById to use assertTruthy and Jira-specific API
+  override getById(
+    issueId: string | number,
+    issueProviderId: string,
+  ): Promise<JiraIssue> {
+    return firstValueFrom(
+      this._getCfgOnce$(issueProviderId).pipe(
+        switchMap((jiraCfg) =>
+          this._jiraApiService.getIssueById$(assertTruthy(issueId).toString(), jiraCfg),
+        ),
+      ),
+    ).then((result) => {
+      if (!result) {
+        throw new Error('Failed to get Jira issue');
+      }
+      return result;
+    });
   }
 
-  getAddTaskData(issue: JiraIssueReduced): { title: string; additionalFields: Partial<Task> } {
+  getAddTaskData(issue: JiraIssueReduced): Partial<Task> & { title: string } {
     return {
       title: `${issue.key} ${issue.summary}`,
-      additionalFields: {
-        issuePoints: issue.storyPoints,
-        issueAttachmentNr: issue.attachments ? issue.attachments.length : 0,
-        issueWasUpdated: false,
-        issueLastUpdated: new Date(issue.updated).getTime()
-      }
+      issuePoints: issue.storyPoints,
+      issueAttachmentNr: issue.attachments ? issue.attachments.length : 0,
+      issueWasUpdated: false,
+      issueLastUpdated: new Date(issue.updated).getTime(),
     };
   }
 
-  issueLink$(issueId: string | number, projectId: string): Observable<string> {
-    if (!issueId || !projectId) {
-      throw new Error('No issueId or no projectId');
-    }
-    // const isIssueKey = isNaN(Number(issueId));
-    return this._projectService.getJiraCfgForProject$(projectId).pipe(
-      first(),
-      map((jiraCfg) => jiraCfg.host + '/browse/' + issueId)
-    );
+  async getNewIssuesToAddToBacklog(
+    issueProviderId: string,
+    _allExistingIssueIds: number[] | string[],
+  ): Promise<JiraIssueReduced[]> {
+    const cfg = await firstValueFrom(this._getCfgOnce$(issueProviderId));
+    return await firstValueFrom(this._jiraApiService.findAutoImportIssues$(cfg));
   }
 
   getMappedAttachments(issueData: JiraIssue): TaskAttachment[] {
-    return issueData && issueData.attachments && issueData.attachments.map(mapJiraAttachmentToAttachment);
+    return issueData?.attachments?.length
+      ? issueData.attachments.map(mapJiraAttachmentToAttachment)
+      : [];
   }
 
-  private _getCfgOnce$(projectId: string): Observable<JiraCfg> {
-    return this._projectService.getJiraCfgForProject$(projectId).pipe(first());
+  protected _apiGetById$(
+    id: string | number,
+    cfg: JiraCfg,
+  ): Observable<IssueData | null> {
+    return this._jiraApiService.getIssueById$(assertTruthy(id).toString(), cfg);
+  }
+
+  protected _apiSearchIssues$(
+    searchTerm: string,
+    cfg: JiraCfg,
+  ): Observable<SearchResultItem[]> {
+    return this._jiraApiService.issuePicker$(searchTerm, cfg).pipe(
+      // Count only: the results carry the user's Jira issue titles and the
+      // log is exportable (rule #9).
+      tap((v) => IssueLog.log('jira.issuePicker$', { resultCount: v.length })),
+    );
+  }
+
+  protected _formatIssueTitleForSnack(issue: IssueData): string {
+    return (issue as JiraIssue).key;
+  }
+
+  protected _getIssueLastUpdated(issue: IssueData): number {
+    return new Date((issue as JiraIssue).updated).getTime();
   }
 }

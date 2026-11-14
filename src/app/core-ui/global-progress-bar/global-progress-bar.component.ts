@@ -1,17 +1,17 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { GlobalProgressBarService } from './global-progress-bar.service';
-import { fadeAnimation, fadeInOutBottomAnimation, fadeOutAnimation } from '../../ui/animations/fade.ani';
+import { fadeAnimation } from '../../ui/animations/fade.ani';
+import { MatProgressBar } from '@angular/material/progress-bar';
+import { AsyncPipe } from '@angular/common';
 
 @Component({
   selector: 'global-progress-bar',
   templateUrl: './global-progress-bar.component.html',
   styleUrls: ['./global-progress-bar.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  animations: [fadeAnimation, fadeInOutBottomAnimation, fadeOutAnimation]
+  animations: [fadeAnimation],
+  imports: [MatProgressBar, AsyncPipe],
 })
 export class GlobalProgressBarComponent {
-  constructor(
-    public globalProgressBarService: GlobalProgressBarService,
-  ) {
-  }
+  globalProgressBarService = inject(GlobalProgressBarService);
 }

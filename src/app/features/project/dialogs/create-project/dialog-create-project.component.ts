@@ -1,47 +1,78 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Inject, OnDestroy, OnInit } from '@angular/core';
-import { MAT_DIALOG_DATA, MatDialog, MatDialogRef } from '@angular/material/dialog';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  OnDestroy,
+  OnInit,
+} from '@angular/core';
+import {
+  MAT_DIALOG_DATA,
+  MatDialogActions,
+  MatDialogContent,
+  MatDialogRef,
+  MatDialogTitle,
+} from '@angular/material/dialog';
 import { Project, ProjectCopy } from '../../project.model';
-import { FormGroup } from '@angular/forms';
-import { FormlyFieldConfig, FormlyFormOptions } from '@ngx-formly/core';
+import { FormsModule, ReactiveFormsModule, UntypedFormGroup } from '@angular/forms';
+import { FormlyFieldConfig, FormlyFormOptions, FormlyModule } from '@ngx-formly/core';
 import { ProjectService } from '../../project.service';
 import { DEFAULT_PROJECT } from '../../project.const';
 import { JiraCfg } from '../../../issue/providers/jira/jira.model';
-import { CREATE_PROJECT_BASIC_CONFIG_FORM_CONFIG } from '../../project-form-cfg.const';
-import { IssueIntegrationCfgs } from '../../../issue/issue.model';
-import { DialogJiraInitialSetupComponent } from '../../../issue/providers/jira/jira-view-components/dialog-jira-initial-setup/dialog-jira-initial-setup.component';
-import { SS_PROJECT_TMP } from '../../../../core/persistence/ls-keys.const';
+import {
+  CREATE_PROJECT_BASIC_CONFIG_FORM_CONFIG,
+  CreateProjectFormModel,
+} from '../../project-form-cfg.const';
+import { SS } from '../../../../core/persistence/storage-keys.const';
 import { Subscription } from 'rxjs';
-import { loadFromSessionStorage, saveToSessionStorage } from '../../../../core/persistence/local-storage';
-import { GithubCfg } from '../../../issue/providers/github/github.model';
-import { DialogGithubInitialSetupComponent } from '../../../issue/providers/github/github-view-components/dialog-github-initial-setup/dialog-github-initial-setup.component';
-import {CALDAV_TYPE, GITHUB_TYPE, GITLAB_TYPE} from '../../../issue/issue.const';
+import {
+  loadFromSessionStorage,
+  saveToSessionStorage,
+} from '../../../../core/persistence/local-storage';
 import { T } from '../../../../t.const';
-import { DEFAULT_JIRA_CFG } from '../../../issue/providers/jira/jira.const';
-import { DEFAULT_GITHUB_CFG } from '../../../issue/providers/github/github.const';
 import { WORK_CONTEXT_THEME_CONFIG_FORM_CONFIG } from '../../../work-context/work-context.const';
-import { GitlabCfg } from 'src/app/features/issue/providers/gitlab/gitlab';
-import { DEFAULT_GITLAB_CFG } from 'src/app/features/issue/providers/gitlab/gitlab.const';
-import { DialogGitlabInitialSetupComponent } from 'src/app/features/issue/providers/gitlab/dialog-gitlab-initial-setup/dialog-gitlab-initial-setup.component';
-import {CaldavCfg} from 'src/app/features/issue/providers/caldav/caldav.model';
-import {DEFAULT_CALDAV_CFG} from 'src/app/features/issue/providers/caldav/caldav.const';
-import {DialogCaldavInitialSetupComponent} from 'src/app/features/issue/providers/caldav/dialog-caldav-initial-setup/dialog-caldav-initial-setup.component';
+import { CaldavCfg } from 'src/app/features/issue/providers/caldav/caldav.model';
+import { OpenProjectCfg } from '../../../issue/providers/open-project/open-project.model';
+import { getRandomWorkContextColor } from '../../../../ui/work-context-color';
+import { removeDebounceFromFormItems } from '../../../../util/remove-debounce-from-form-items';
+import { MatButton } from '@angular/material/button';
+import { TranslatePipe } from '@ngx-translate/core';
+import { Log } from '../../../../core/log';
+import { PlainspaceShareService } from '../../../issue/providers/plainspace/plainspace-share.service';
 
 @Component({
   selector: 'dialog-create-project',
   templateUrl: './dialog-create-project.component.html',
   styleUrls: ['./dialog-create-project.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    MatDialogTitle,
+    FormsModule,
+    ReactiveFormsModule,
+    MatDialogContent,
+    FormlyModule,
+    MatDialogActions,
+    MatButton,
+    TranslatePipe,
+  ],
 })
 export class DialogCreateProjectComponent implements OnInit, OnDestroy {
-  T: typeof T = T;
-  projectData: ProjectCopy | Partial<ProjectCopy> = DEFAULT_PROJECT;
-  jiraCfg?: JiraCfg;
-  githubCfg?: GithubCfg;
-  gitlabCfg?: GitlabCfg;
-  caldavCfg?: CaldavCfg;
+  private _project = inject<Project>(MAT_DIALOG_DATA);
+  private _projectService = inject(ProjectService);
+  private _plainspaceShareService = inject(PlainspaceShareService);
+  private _matDialogRef =
+    inject<MatDialogRef<DialogCreateProjectComponent>>(MatDialogRef);
 
-  formBasic: FormGroup = new FormGroup({});
-  formTheme: FormGroup = new FormGroup({});
+  T: typeof T = T;
+  projectData: ProjectCopy | Partial<ProjectCopy> = {
+    ...DEFAULT_PROJECT,
+    theme: { ...DEFAULT_PROJECT.theme, primary: getRandomWorkContextColor() },
+  };
+  jiraCfg?: JiraCfg;
+  caldavCfg?: CaldavCfg;
+  openProjectCfg?: OpenProjectCfg;
+
+  formBasic: UntypedFormGroup = new UntypedFormGroup({});
+  formTheme: UntypedFormGroup = new UntypedFormGroup({});
   formOptionsBasic: FormlyFormOptions = {
     formState: {
       awesomeIsForced: false,
@@ -59,24 +90,21 @@ export class DialogCreateProjectComponent implements OnInit, OnDestroy {
   private _subs: Subscription = new Subscription();
   private _isSaveTmpProject: boolean = false;
 
-  constructor(
-    @Inject(MAT_DIALOG_DATA) private _project: Project,
-    private _projectService: ProjectService,
-    private _matDialog: MatDialog,
-    private _matDialogRef: MatDialogRef<DialogCreateProjectComponent>,
-    private _cd: ChangeDetectorRef,
-  ) {
+  constructor() {
     // somehow they are only unproblematic if assigned here,
-    this.basicSettingsFormCfg = CREATE_PROJECT_BASIC_CONFIG_FORM_CONFIG.items as any;
-    this.themeFormCfg = WORK_CONTEXT_THEME_CONFIG_FORM_CONFIG.items as any;
+    this.basicSettingsFormCfg = removeDebounceFromFormItems(
+      CREATE_PROJECT_BASIC_CONFIG_FORM_CONFIG.items as FormlyFieldConfig[],
+    );
+    this.themeFormCfg = removeDebounceFromFormItems(
+      WORK_CONTEXT_THEME_CONFIG_FORM_CONFIG.items as FormlyFieldConfig[],
+    );
   }
 
-  ngOnInit() {
+  ngOnInit(): void {
     if (this._project) {
-      this.projectData = {...this._project};
-
+      this.projectData = { ...this._project };
     } else {
-      const ssVal: any = loadFromSessionStorage(SS_PROJECT_TMP);
+      const ssVal: any = loadFromSessionStorage(SS.PROJECT_TMP);
       if (ssVal) {
         this.projectData = {
           ...DEFAULT_PROJECT,
@@ -88,36 +116,15 @@ export class DialogCreateProjectComponent implements OnInit, OnDestroy {
       // save tmp data if adding a new project
       // NOTE won't be properly executed if added to _subs
       this._matDialogRef.afterClosed().subscribe(() => {
-        const issueIntegrationCfgs: IssueIntegrationCfgs = {
-          ...this.projectData.issueIntegrationCfgs,
-          JIRA: this.jiraCfg,
-          GITHUB: this.githubCfg,
-          GITLAB: this.gitlabCfg,
-          CALDAV: this.caldavCfg,
-        };
         const projectDataToSave: Project | Partial<Project> = {
           ...this.projectData,
-          issueIntegrationCfgs,
         };
+        // Never persist the transient share flag (not part of the Project model).
+        delete (projectDataToSave as Partial<CreateProjectFormModel>).isShareOnPlainspace;
         if (this._isSaveTmpProject) {
-          saveToSessionStorage(SS_PROJECT_TMP, projectDataToSave);
+          saveToSessionStorage(SS.PROJECT_TMP, projectDataToSave);
         }
       });
-    }
-
-    if (this.projectData.issueIntegrationCfgs) {
-      if (this.projectData.issueIntegrationCfgs.JIRA) {
-        this.jiraCfg = this.projectData.issueIntegrationCfgs.JIRA;
-      }
-      if (this.projectData.issueIntegrationCfgs.GITHUB) {
-        this.githubCfg = this.projectData.issueIntegrationCfgs.GITHUB;
-      }
-      if (this.projectData.issueIntegrationCfgs.GITLAB) {
-        this.gitlabCfg = this.projectData.issueIntegrationCfgs.GITLAB;
-      }
-      if (this.projectData.issueIntegrationCfgs.CALDAV) {
-        this.caldavCfg = this.projectData.issueIntegrationCfgs.CALDAV;
-      }
     }
   }
 
@@ -125,128 +132,48 @@ export class DialogCreateProjectComponent implements OnInit, OnDestroy {
     this._subs.unsubscribe();
   }
 
-  submit() {
-    const issueIntegrationCfgs: IssueIntegrationCfgs = {
-      ...this.projectData.issueIntegrationCfgs,
-      JIRA: this.jiraCfg || DEFAULT_JIRA_CFG,
-      GITHUB: this.githubCfg || DEFAULT_GITHUB_CFG,
-      GITLAB: this.gitlabCfg || DEFAULT_GITLAB_CFG,
-      CALDAV: this.caldavCfg || DEFAULT_CALDAV_CFG,
-    };
+  submit(): void {
+    // Check if both forms are valid
+    if (!this.formBasic.valid || !this.formTheme.valid) {
+      // Mark all fields as touched to show validation errors
+      this.formBasic.markAllAsTouched();
+      this.formTheme.markAllAsTouched();
+      Log.err('Form validation failed', {
+        basicFormErrors: this.formBasic.errors,
+        themeFormErrors: this.formTheme.errors,
+      });
+      return;
+    }
 
     const projectDataToSave: Project | Partial<Project> = {
       ...this.projectData,
-      issueIntegrationCfgs,
     };
+    // `isShareOnPlainspace` is a transient form-only flag — read it, then strip
+    // it so it is never persisted onto the Project entity.
+    const isShareOnPlainspace = !!(projectDataToSave as Partial<CreateProjectFormModel>)
+      .isShareOnPlainspace;
+    delete (projectDataToSave as Partial<CreateProjectFormModel>).isShareOnPlainspace;
 
+    let newProjectId: string | undefined;
     if (projectDataToSave.id) {
       this._projectService.update(projectDataToSave.id, projectDataToSave);
     } else {
-      this._projectService.add(projectDataToSave);
+      newProjectId = this._projectService.add(projectDataToSave);
+      if (isShareOnPlainspace && newProjectId) {
+        // Fire-and-forget: provision a Plainspace space + bound issue provider.
+        this._plainspaceShareService.shareProjectOnPlainspace(
+          newProjectId,
+          projectDataToSave.title || '',
+        );
+      }
     }
     this._isSaveTmpProject = false;
-    sessionStorage.removeItem(SS_PROJECT_TMP);
+    sessionStorage.removeItem(SS.PROJECT_TMP);
 
+    this._matDialogRef.close(newProjectId);
+  }
+
+  cancelEdit(): void {
     this._matDialogRef.close();
-  }
-
-  cancelEdit() {
-    this._matDialogRef.close();
-  }
-
-  openJiraCfg() {
-    this._subs.add(this._matDialog.open(DialogJiraInitialSetupComponent, {
-      restoreFocus: true,
-      data: {
-        jiraCfg: this.jiraCfg,
-      }
-    }).afterClosed().subscribe((jiraCfg: JiraCfg) => {
-
-      if (jiraCfg) {
-        this._saveJiraCfg(jiraCfg);
-      }
-    }));
-  }
-
-  openGithubCfg() {
-    this._subs.add(this._matDialog.open(DialogGithubInitialSetupComponent, {
-      restoreFocus: true,
-      data: {
-        githubCfg: this.githubCfg,
-      }
-    }).afterClosed().subscribe((gitCfg: GithubCfg) => {
-
-      if (gitCfg) {
-        this._saveGithubCfg(gitCfg);
-      }
-    }));
-  }
-
-  openGitlabCfg() {
-    this._subs.add(this._matDialog.open(DialogGitlabInitialSetupComponent, {
-      restoreFocus: true,
-      data: {
-        gitlabCfg: this.gitlabCfg,
-      }
-    }).afterClosed().subscribe((gitlabCfg: GitlabCfg) => {
-
-      if (gitlabCfg) {
-        this._saveGitlabCfg(gitlabCfg);
-      }
-    }));
-  }
-
-  openCaldavCfg() {
-    this._subs.add(this._matDialog.open(DialogCaldavInitialSetupComponent, {
-      restoreFocus: true,
-      data: {
-        caldavCfg: this.caldavCfg,
-      }
-    }).afterClosed().subscribe((caldavCfg: CaldavCfg) => {
-
-      if (caldavCfg) {
-        this._saveCaldavCfg(caldavCfg);
-      }
-    }));
-  }
-
-  private _saveJiraCfg(jiraCfg: JiraCfg) {
-    this.jiraCfg = jiraCfg;
-    this._cd.markForCheck();
-
-    // if we're editing save right away
-    if (this.projectData.id) {
-      this._projectService.updateIssueProviderConfig(this.projectData.id, 'JIRA', this.jiraCfg);
-    }
-  }
-
-  private _saveGithubCfg(githubCfg: GithubCfg) {
-    this.githubCfg = githubCfg;
-    this._cd.markForCheck();
-
-    // if we're editing save right away
-    if (this.projectData.id) {
-      this._projectService.updateIssueProviderConfig(this.projectData.id, GITHUB_TYPE, this.githubCfg);
-    }
-  }
-
-  private _saveGitlabCfg(gitlabCfg: GitlabCfg) {
-    this.gitlabCfg = gitlabCfg;
-    this._cd.markForCheck();
-
-    // if we're editing save right away
-    if (this.projectData.id) {
-      this._projectService.updateIssueProviderConfig(this.projectData.id, GITLAB_TYPE, this.gitlabCfg);
-    }
-  }
-
-  private _saveCaldavCfg(caldavCfg: CaldavCfg) {
-    this.caldavCfg = caldavCfg;
-    this._cd.markForCheck();
-
-    // if we're editing save right away
-    if (this.projectData.id) {
-      this._projectService.updateIssueProviderConfig(this.projectData.id, CALDAV_TYPE, this.caldavCfg);
-    }
   }
 }

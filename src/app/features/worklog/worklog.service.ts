@@ -1,10 +1,19 @@
-import { Injectable } from '@angular/core';
+import { inject, Injectable } from '@angular/core';
 import { Worklog, WorklogDay, WorklogWeek } from './worklog.model';
 import { dedupeByKey } from '../../util/de-dupe-by-key';
-import { PersistenceService } from '../../core/persistence/persistence.service';
 import { BehaviorSubject, from, merge, Observable } from 'rxjs';
-import { concatMap, filter, first, map, shareReplay, startWith, switchMap, take } from 'rxjs/operators';
+import {
+  concatMap,
+  distinctUntilChanged,
+  filter,
+  first,
+  map,
+  shareReplay,
+  startWith,
+  switchMap,
+} from 'rxjs/operators';
 import { getWeekNumber } from '../../util/get-week-number';
+import { getWeekStartDate } from '../../util/get-week-start-date';
 import { WorkContextService } from '../work-context/work-context.service';
 import { WorkContext } from '../work-context/work-context.model';
 import { mapArchiveToWorklog } from './util/map-archive-to-worklog';
@@ -12,59 +21,152 @@ import { TaskService } from '../tasks/task.service';
 import { createEmptyEntity } from '../../util/create-empty-entity';
 import { getCompleteStateForWorkContext } from './util/get-complete-state-for-work-context.util';
 import { NavigationEnd, Router } from '@angular/router';
-import { DataInitService } from '../../core/data-init/data-init.service';
 import { WorklogTask } from '../tasks/task.model';
+import { DateAdapter } from '@angular/material/core';
+import { DataInitStateService } from '../../core/data-init/data-init-state.service';
+import { TimeTrackingService } from '../time-tracking/time-tracking.service';
+import { TaskArchiveService } from '../archive/task-archive.service';
+import { getDbDateStr } from '../../util/get-db-date-str';
+import { DateTimeFormatService } from 'src/app/core/date-time-format/date-time-format.service';
+import { Log } from '../../core/log';
+import { DateService } from '../../core/date/date.service';
 
-@Injectable({providedIn: 'root'})
+export const getWorklogWeekForDate = (
+  worklog: Worklog,
+  relativeDate: Date,
+  firstDayOfWeek: number,
+): WorklogWeek | null => {
+  const normalizedFirstDayOfWeek = ((firstDayOfWeek % 7) + 7) % 7;
+  const rangeEnd = new Date(
+    relativeDate.getFullYear(),
+    relativeDate.getMonth(),
+    relativeDate.getDate(),
+  );
+  const rangeStart = getWeekStartDate(rangeEnd, firstDayOfWeek);
+  const weekEnd = new Date(rangeStart);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+
+  const ent: WorklogWeek['ent'] = {};
+  let daysWorked = 0;
+  let timeSpent = 0;
+
+  for (
+    const date = new Date(rangeStart);
+    date <= rangeEnd;
+    date.setDate(date.getDate() + 1)
+  ) {
+    const day =
+      worklog[date.getFullYear()]?.ent[date.getMonth() + 1]?.ent[date.getDate()];
+
+    if (day) {
+      ent[date.getDate()] = day;
+      daysWorked += 1;
+      timeSpent += day.timeSpent;
+    }
+  }
+
+  if (daysWorked === 0) {
+    return null;
+  }
+
+  return {
+    start: rangeStart.getDate(),
+    end: weekEnd.getDate(),
+    startDateStr: getDbDateStr(rangeStart),
+    endDateStr: getDbDateStr(weekEnd),
+    weekNr: getWeekNumber(relativeDate, normalizedFirstDayOfWeek),
+    timeSpent,
+    daysWorked,
+    ent,
+  };
+};
+
+@Injectable({ providedIn: 'root' })
 export class WorklogService {
+  private readonly _workContextService = inject(WorkContextService);
+  private readonly _dataInitStateService = inject(DataInitStateService);
+  private readonly _taskService = inject(TaskService);
+  private readonly _timeTrackingService = inject(TimeTrackingService);
+  private readonly _router = inject(Router);
+  private readonly _dateTimeFormatService = inject(DateTimeFormatService);
+  private readonly _dateService = inject(DateService);
+  private _dateAdapter = inject(DateAdapter);
+  private _taskArchiveService = inject(TaskArchiveService);
+
   // treated as private but needs to be assigned first
-  archiveUpdateManualTrigger$: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(true);
-  _archiveUpdateTrigger$: Observable<any> = this._dataInitService.isAllDataLoadedInitially$.pipe(
-    concatMap(() => merge(
-      // this._workContextService.activeWorkContextOnceOnContextChange$,
-      this.archiveUpdateManualTrigger$,
-      this._router.events.pipe(
-        filter((event: any) => event instanceof NavigationEnd),
-        filter(({urlAfterRedirects}: NavigationEnd) =>
-          urlAfterRedirects.includes('worklog')
-          || urlAfterRedirects.includes('daily-summary')
+  archiveUpdateManualTrigger$: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(
+    true,
+  );
+  _archiveUpdateTrigger$: Observable<any> =
+    this._dataInitStateService.isAllDataLoadedInitially$.pipe(
+      concatMap(() =>
+        merge(
+          this.archiveUpdateManualTrigger$,
+          this._router.events.pipe(
+            filter((event: any) => event instanceof NavigationEnd),
+            filter(
+              ({ urlAfterRedirects }: NavigationEnd) =>
+                // 'history' also matches the legacy 'quick-history' substring
+                urlAfterRedirects.includes('history') ||
+                urlAfterRedirects.includes('worklog') ||
+                urlAfterRedirects.includes('daily-summary') ||
+                urlAfterRedirects.includes('metrics'),
+            ),
+          ),
         ),
       ),
-    )),
-  );
+    );
 
+  // Each trigger emission opens a fresh subscription to activeWorkContext$ that
+  // also lives until the next trigger, so:
+  //   - manual refreshes and URL-driven triggers always reload (the inner stream
+  //     is fresh, so distinctUntilChanged has no prior value and lets the first
+  //     emission through);
+  //   - subsequent context changes (e.g. switching projects on the metrics page,
+  //     where no trigger URL is crossed) also reload, because the inner
+  //     subscription is still alive and distinctUntilChanged sees a different id.
   // NOTE: task updates are not reflected
   // TODO improve to reflect task updates or load when route is changed to worklog or daily summary
-  worklogData$: Observable<{ worklog: Worklog; totalTimeSpent: number }> = this._archiveUpdateTrigger$.pipe(
-    switchMap(() => this._workContextService.activeWorkContext$.pipe(take(1))),
-    switchMap((curCtx) => from(this._loadForWorkContext(curCtx)).pipe(
-      startWith<any, any>(null),
-    )),
-    shareReplay({bufferSize: 1, refCount: true}),
+  worklogData$: Observable<{
+    worklog: Worklog;
+    totalTimeSpent: number;
+  }> = this._archiveUpdateTrigger$.pipe(
+    switchMap(() =>
+      this._workContextService.activeWorkContext$.pipe(
+        distinctUntilChanged((a, b) => a.id === b.id),
+      ),
+    ),
+    switchMap((curCtx) =>
+      from(
+        this._loadWorklogForWorkContext(curCtx).catch((e) => {
+          Log.err('WorklogService: Failed to load worklog data', e);
+          return { worklog: {} as Worklog, totalTimeSpent: 0 };
+        }),
+      ).pipe(startWith<any, any>(null)),
+    ),
+    shareReplay({ bufferSize: 1, refCount: true }),
   );
 
-  _worklogDataIfDefined$: Observable<{ worklog: Worklog; totalTimeSpent: number }> = this.worklogData$.pipe(
-    filter(wd => !!wd),
-  );
+  _worklogDataIfDefined$: Observable<{
+    worklog: Worklog;
+    totalTimeSpent: number;
+  }> = this.worklogData$.pipe(filter((wd) => !!wd));
 
-  worklog$: Observable<Worklog> = this._worklogDataIfDefined$.pipe(map(data => data.worklog));
-  totalTimeSpent$: Observable<number> = this._worklogDataIfDefined$.pipe(map(data => data.totalTimeSpent));
+  worklog$: Observable<Worklog> = this._worklogDataIfDefined$.pipe(
+    map((data) => data.worklog),
+  );
+  totalTimeSpent$: Observable<number> = this._worklogDataIfDefined$.pipe(
+    map((data) => data.totalTimeSpent),
+  );
   currentWeek$: Observable<WorklogWeek | null> = this.worklog$.pipe(
-    map(worklog => {
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth() + 1;
-      const weekNr = getWeekNumber(now);
-
-      if (worklog[year] && worklog[year].ent[month]) {
-        return worklog[year].ent[month].weeks.find(week => week.weekNr === weekNr) || null;
-      }
-      return null;
+    map((worklog) => {
+      const today = this._dateService.getLogicalTodayDate();
+      return getWorklogWeekForDate(worklog, today, this._dateAdapter.getFirstDayOfWeek());
     }),
   );
 
   worklogTasks$: Observable<WorklogTask[]> = this.worklog$.pipe(
-    map(worklog => {
+    map((worklog) => {
       let tasks: WorklogTask[] = [];
 
       Object.keys(worklog).forEach((yearKeyIN) => {
@@ -72,13 +174,13 @@ export class WorklogService {
         const year = worklog[yearKey];
 
         if (year && year.ent) {
-          Object.keys(year.ent).forEach(monthKeyIN => {
+          Object.keys(year.ent).forEach((monthKeyIN) => {
             // needs de-normalization
             const monthKey = +monthKeyIN;
             const month = year.ent[monthKey];
 
             if (month && month.ent) {
-              Object.keys(month.ent).forEach(dayKeyIN => {
+              Object.keys(month.ent).forEach((dayKeyIN) => {
                 const dayKey = +dayKeyIN;
                 const day: WorklogDay = month.ent[dayKey];
                 if (day) {
@@ -90,52 +192,52 @@ export class WorklogService {
         }
       });
       return tasks;
-    })
+    }),
   );
 
-  constructor(
-    private readonly _persistenceService: PersistenceService,
-    private readonly _workContextService: WorkContextService,
-    private readonly _dataInitService: DataInitService,
-    private readonly _taskService: TaskService,
-    private readonly _router: Router,
-  ) {
-  }
-
-  refreshWorklog() {
+  refreshWorklog(): void {
     this.archiveUpdateManualTrigger$.next(true);
   }
 
   // TODO this is not waiting for worklog data
-  getTaskListForRange$(rangeStart: Date,
+  getTaskListForRange$(
+    rangeStart: Date,
     rangeEnd: Date,
     isFilterOutTimeSpentOnOtherDays: boolean = false,
-    projectId?: string | null): Observable<WorklogTask[]> {
+    projectId?: string | null,
+  ): Observable<WorklogTask[]> {
     const isProjectIdProvided: boolean = !!projectId || projectId === null;
 
+    // Convert date range to date strings for timezone-safe comparison
+    const rangeStartStr = getDbDateStr(rangeStart);
+    const rangeEndStr = getDbDateStr(rangeEnd);
+
     return this.worklogTasks$.pipe(
-      map(tasks => {
+      map((tasks) => {
         tasks = tasks.filter((task: WorklogTask) => {
-          const taskDate = new Date(task.dateStr);
-          return (!isProjectIdProvided || task.projectId === projectId)
-            && (taskDate >= rangeStart && taskDate <= rangeEnd);
+          // Use date string comparison instead of Date object comparison
+          // to avoid timezone issues
+          return (
+            (!isProjectIdProvided || task.projectId === projectId) &&
+            task.dateStr >= rangeStartStr &&
+            task.dateStr <= rangeEndStr
+          );
         });
 
         if (isFilterOutTimeSpentOnOtherDays) {
           tasks = tasks.map((task): WorklogTask => {
-
             const timeSpentOnDay: any = {};
-            Object.keys(task.timeSpentOnDay).forEach(dateStr => {
-              const date = new Date(dateStr);
-
-              if (date >= rangeStart && date <= rangeEnd) {
+            Object.keys(task.timeSpentOnDay || {}).forEach((dateStr) => {
+              // Use date string comparison instead of Date object comparison
+              // to avoid timezone issues
+              if (dateStr >= rangeStartStr && dateStr <= rangeEndStr) {
                 timeSpentOnDay[dateStr] = task.timeSpentOnDay[dateStr];
               }
             });
 
             return {
               ...task,
-              timeSpentOnDay
+              timeSpentOnDay,
             };
           });
         }
@@ -145,24 +247,31 @@ export class WorklogService {
     );
   }
 
-  private async _loadForWorkContext(workContext: WorkContext): Promise<{ worklog: Worklog; totalTimeSpent: number }> {
-    const archive = await this._persistenceService.taskArchive.loadState() || createEmptyEntity();
-    const taskState = await this._taskService.taskFeatureState$.pipe(first()).toPromise() || createEmptyEntity();
+  private async _loadWorklogForWorkContext(
+    workContext: WorkContext,
+  ): Promise<{ worklog: Worklog; totalTimeSpent: number }> {
+    const archive = (await this._taskArchiveService.load()) || createEmptyEntity();
+    const taskState =
+      (await this._taskService.taskFeatureState$.pipe(first()).toPromise()) ||
+      createEmptyEntity();
 
-    // console.time('calcTime');
-    const {
-      completeStateForWorkContext,
-      unarchivedIds
-    } = getCompleteStateForWorkContext(workContext, taskState, archive);
-    // console.timeEnd('calcTime');
+    const { completeStateForWorkContext, nonArchiveTaskIds } =
+      getCompleteStateForWorkContext(workContext, taskState, archive);
 
-    const startEnd = {
-      workStart: workContext.workStart,
-      workEnd: workContext.workEnd,
-    };
+    const workStartEndForWorkContext =
+      await this._timeTrackingService.getLegacyWorkStartEndForWorkContext(workContext);
 
     if (completeStateForWorkContext) {
-      const {worklog, totalTimeSpent} = mapArchiveToWorklog(completeStateForWorkContext, unarchivedIds, startEnd);
+      const { worklog, totalTimeSpent } = mapArchiveToWorklog(
+        completeStateForWorkContext,
+        nonArchiveTaskIds,
+        workStartEndForWorkContext,
+        this._dateAdapter.getFirstDayOfWeek(),
+        // Only feeds formatDayStr's spelled-out weekday, which must follow the UI
+        // language under the ISO 8601 option (the `sv` sentinel would otherwise
+        // leak Swedish weekday names in worklog day headers). #8987 follow-up.
+        this._dateTimeFormatService.textLocale(),
+      );
       return {
         worklog,
         totalTimeSpent,
@@ -170,12 +279,12 @@ export class WorklogService {
     }
     return {
       worklog: {},
-      totalTimeSpent: 0
+      totalTimeSpent: 0,
     };
   }
 
   private _createTasksForDay(data: WorklogDay): WorklogTask[] {
-    const dayData = {...data};
+    const dayData = { ...data };
 
     return dayData.logEntries.map((entry) => {
       return {

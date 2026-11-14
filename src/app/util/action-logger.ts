@@ -1,38 +1,40 @@
-import { loadFromRealLs, saveToRealLs } from '../core/persistence/local-storage';
-import { LS_ACTION_BEFORE_LAST_ERROR_LOG, LS_ACTION_LOG } from '../core/persistence/ls-keys.const';
+import { Log } from '../core/log';
 
 const NUMBER_OF_ACTIONS_TO_SAVE = 30;
 
-const getActionLog = (): string[] => {
-  const current = loadFromRealLs(LS_ACTION_LOG);
-  return Array.isArray(current)
-    ? current
-    : [];
-};
+// Keep action log in memory only
+const actionLog: string[] = [];
+let beforeLastErrorLog: string[] = [];
 
-export const actionLogger = (action: any) => {
+export const actionLogger = (action: { type: string; [key: string]: unknown }): void => {
   if (action.type.indexOf('@ngrx') === 0) {
     return;
   }
 
-  const current = getActionLog();
-  if (current.length >= NUMBER_OF_ACTIONS_TO_SAVE) {
-    current.shift();
+  if (actionLog.length >= NUMBER_OF_ACTIONS_TO_SAVE) {
+    actionLog.shift();
   }
-  current.push(`${Date.now()}: ${action.type}`);
+  const last = actionLog[actionLog.length - 1];
 
-  saveToRealLs(LS_ACTION_LOG, current);
+  // avoid logs with all the same action
+  if (last && last.includes(action.type)) {
+    const m = last.match(/\((\d+)\)$/);
+    if (m && +m[1] > 0) {
+      actionLog[actionLog.length - 1] = `${Date.now()}: ${action.type} (${+m[1] + 1})`;
+    } else {
+      actionLog[actionLog.length - 1] = `${Date.now()}: ${action.type} (2)`;
+    }
+  } else {
+    actionLog.push(`${Date.now()}: ${action.type}`);
+  }
 };
 
-export const saveBeforeLastErrorActionLog = () => {
-  const current = getActionLog();
-  console.log('Last actions before error:', current);
-  saveToRealLs(LS_ACTION_BEFORE_LAST_ERROR_LOG, current);
+export const saveBeforeLastErrorActionLog = (): void => {
+  beforeLastErrorLog = [...actionLog];
+  // eslint-disable-next-line local-rules/no-user-content-in-logs -- grandfathered log baseline (2026-09), not yet triaged
+  Log.log('Last actions before error:', beforeLastErrorLog);
 };
 
 export const getBeforeLastErrorActionLog = (): string[] => {
-  const current = loadFromRealLs(LS_ACTION_BEFORE_LAST_ERROR_LOG);
-  return Array.isArray(current)
-    ? current
-    : [];
+  return beforeLastErrorLog;
 };

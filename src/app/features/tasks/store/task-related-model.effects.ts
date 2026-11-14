@@ -1,296 +1,150 @@
-import { Injectable } from '@angular/core';
-import { Actions, Effect, ofType } from '@ngrx/effects';
+import { inject, Injectable } from '@angular/core';
+import { createEffect, ofType } from '@ngrx/effects';
+import { TaskSharedActions } from '../../../root-store/meta/task-shared.actions';
 import {
-  AddTask,
-  AddTimeSpent,
-  MoveToArchive,
-  MoveToOtherProject,
-  RestoreTask,
-  TaskActionTypes,
-  UpdateTask,
-  UpdateTaskTags
-} from './task.actions';
-import { concatMap, delay, filter, first, map, mapTo, mergeMap, switchMap, tap, withLatestFrom } from 'rxjs/operators';
-import { PersistenceService } from '../../../core/persistence/persistence.service';
-import { Task, TaskArchive, TaskWithSubTasks } from '../task.model';
-import { ReminderService } from '../../reminder/reminder.service';
-import { moveTaskInTodayList, moveTaskToTodayList } from '../../work-context/store/work-context-meta.actions';
-import { taskAdapter } from './task.adapter';
-import { flattenTasks } from './task.selectors';
+  concatMap,
+  distinctUntilChanged,
+  filter,
+  first,
+  map,
+  switchMap,
+} from 'rxjs/operators';
+import { moveTaskInTodayList } from '../../work-context/store/work-context-meta.actions';
 import { GlobalConfigService } from '../../config/global-config.service';
-import { TODAY_TAG } from '../../tag/tag.const';
-import { unique } from '../../../util/unique';
-import { TaskService } from '../task.service';
-import { EMPTY, Observable, of } from 'rxjs';
-import { createEmptyEntity } from '../../../util/create-empty-entity';
-import { ProjectService } from '../../project/project.service';
-import { TagService } from '../../tag/tag.service';
-import { shortSyntax } from '../short-syntax.util';
-import { environment } from '../../../../environments/environment';
+import { EMPTY, Observable } from 'rxjs';
+import { moveProjectTaskToRegularList } from '../../project/store/project.actions';
+import { TimeTrackingActions } from '../../time-tracking/store/time-tracking.actions';
+import { Store } from '@ngrx/store';
+import { selectTodayTaskIds } from '../../work-context/store/work-context.selectors';
+import { selectTaskEntities } from './task.selectors';
+import { LOCAL_ACTIONS } from '../../../util/local-actions.token';
+import { HydrationStateService } from '../../../op-log/apply/hydration-state.service';
+import { DateService } from '../../../core/date/date.service';
 
 @Injectable()
 export class TaskRelatedModelEffects {
+  private _actions$ = inject(LOCAL_ACTIONS);
+  private _globalConfigService = inject(GlobalConfigService);
+  private _store = inject(Store);
+  private _hydrationState = inject(HydrationStateService);
+  private _dateService = inject(DateService);
+
   // EFFECTS ===> EXTERNAL
   // ---------------------
-  @Effect({dispatch: false})
-  moveToArchive$: any = this._actions$.pipe(
-    ofType(TaskActionTypes.MoveToArchive),
-    tap(this._moveToArchive.bind(this)),
-  );
 
-  // TODO remove once reminder is changed
-  @Effect({dispatch: false})
-  moveToOtherProject: any = this._actions$.pipe(
-    ofType(TaskActionTypes.MoveToOtherProject),
-    tap(this._moveToOtherProject.bind(this)),
-  );
+  ifAutoAddTodayEnabled$ = <T>(obs: Observable<T>): Observable<T> =>
+    this._globalConfigService.tasks$.pipe(
+      switchMap((tasks) => (tasks.isAutoAddWorkedOnToToday ? obs : EMPTY)),
+    );
 
-  @Effect({dispatch: false})
-  restoreTask$: any = this._actions$.pipe(
-    ofType(TaskActionTypes.RestoreTask),
-    tap(this._removeFromArchive.bind(this))
-  );
-
-  @Effect()
-  autoAddTodayTag: any = this._actions$.pipe(
-    ofType(TaskActionTypes.AddTimeSpent),
-    switchMap((a: AddTimeSpent) => a.payload.task.parentId
-      ? this._taskService.getByIdOnce$(a.payload.task.parentId)
-      : of(a.payload.task),
+  autoAddTodayTagOnTracking = createEffect(() =>
+    this.ifAutoAddTodayEnabled$(
+      this._actions$.pipe(
+        ofType(TimeTrackingActions.addTimeSpent),
+        // PERF: Skip during hydration/sync before any further work.
+        filter(() => !this._hydrationState.isApplyingRemoteOps()),
+        // Time back-filled for a past day is not work done today.
+        filter(({ isBackfill }) => !isBackfill),
+        // Cheap field checks first: a task with its own due date is already
+        // handled by dueDay-based TODAY membership, so it can never need
+        // auto-adding here. Running these before any store read means the
+        // common "already-scheduled" tick short-circuits immediately.
+        filter(({ task }) => !task.dueDay && typeof task.dueWithTime !== 'number'),
+        // addTimeSpent fires every second while tracking; only (re)evaluate when
+        // the tracked task actually changes, not per tick.
+        distinctUntilChanged((a, b) => a.task.id === b.task.id),
+        // PERF: read TODAY membership lazily on-demand for the rare qualifying
+        // action instead of a continuously-subscribed withLatestFrom, which would
+        // recompute the O(n) selectTodayTaskIds scan every tick as task entities
+        // churn. Semantics are identical: the current value is read synchronously.
+        concatMap((action) =>
+          this._store.select(selectTodayTaskIds).pipe(
+            first(),
+            filter(
+              (todayTaskIds) =>
+                !todayTaskIds.includes(action.task.id) &&
+                (!action.task.parentId || !todayTaskIds.includes(action.task.parentId)),
+            ),
+            map(() =>
+              TaskSharedActions.planTasksForToday({
+                taskIds: [action.task.id],
+                today: this._dateService.todayStr(),
+                startOfNextDayDiffMs: this._dateService.getStartOfNextDayDiffMs(),
+              }),
+            ),
+          ),
+        ),
+      ),
     ),
-    filter((task: Task) => !task.tagIds.includes(TODAY_TAG.id)),
-    concatMap((task: Task) => this._globalConfigService.misc$.pipe(
-      first(),
-      map(miscCfg => ({
-        miscCfg,
-        task,
-      }))
-    )),
-    filter(({miscCfg, task}) => miscCfg.isAutoAddWorkedOnToToday),
-    map(({miscCfg, task}) => new UpdateTaskTags({
-      task,
-      newTagIds: unique([...task.tagIds, TODAY_TAG.id]),
-      oldTagIds: task.tagIds,
-    }))
   );
+
+  // NOTE: Completing a task no longer auto-dates it. Completion records only
+  // `doneOn`; it never synthesizes or freezes a `dueDay`. The Today "Done" list
+  // is driven by `isDone`/`doneOn`, so completed tasks still show there without a
+  // schedule. The `isAutoAddWorkedOnToToday` setting now gates ONLY the
+  // time-tracking auto-add path above (`autoAddTodayTagOnTracking`).
 
   // EXTERNAL ===> TASKS
   // -------------------
-  @Effect()
-  moveTaskToUnDone$: any = this._actions$.pipe(
-    ofType(
-      moveTaskInTodayList,
-      moveTaskToTodayList,
+
+  moveTaskToUnDone$ = createEffect(() =>
+    this._actions$.pipe(
+      ofType(moveTaskInTodayList, moveProjectTaskToRegularList),
+      filter(
+        ({ src, target }) => (src === 'DONE' || src === 'BACKLOG') && target === 'UNDONE',
+      ),
+      map(({ taskId }) =>
+        TaskSharedActions.updateTask({
+          task: {
+            id: taskId,
+            changes: {
+              isDone: false,
+            },
+          },
+        }),
+      ),
     ),
-    filter(({src, target}) => (src === 'DONE' || src === 'BACKLOG') && target === 'UNDONE'),
-    map(({taskId}) => new UpdateTask({
-      task: {
-        id: taskId,
-        changes: {
-          isDone: false,
-        }
-      }
-    }))
   );
 
-  @Effect()
-  moveTaskToDone$: any = this._actions$.pipe(
-    ofType(
-      moveTaskInTodayList,
-      moveTaskToTodayList,
+  moveTaskToDone$ = createEffect(() =>
+    this._actions$.pipe(
+      ofType(moveTaskInTodayList, moveProjectTaskToRegularList),
+      filter(
+        ({ src, target }) => (src === 'UNDONE' || src === 'BACKLOG') && target === 'DONE',
+      ),
+      // The backlog lists done tasks too. Marking one done again would only
+      // stamp a new `doneOn`: it moves the completion date and turns a won't-do
+      // task into a completed one (`isWontDoTask`).
+      concatMap(({ taskId }) =>
+        this._store.select(selectTaskEntities).pipe(
+          first(),
+          filter((entities) => !entities[taskId]?.isDone),
+          map(() =>
+            TaskSharedActions.updateTask({
+              task: {
+                id: taskId,
+                changes: {
+                  isDone: true,
+                },
+              },
+            }),
+          ),
+        ),
+      ),
     ),
-    filter(({src, target}) => (src === 'UNDONE' || src === 'BACKLOG') && target === 'DONE'),
-    map(({taskId}) => new UpdateTask({
-      task: {
-        id: taskId,
-        changes: {
-          isDone: true,
-        }
-      }
-    }))
   );
 
-  @Effect()
-  setDefaultProjectId$: any = this._actions$.pipe(
-    ofType(
-      TaskActionTypes.AddTask,
-    ),
-    concatMap((act: AddTask) => this._globalConfigService.misc$.pipe(
-      first(),
-      // error handling
-      switchMap((miscConfig) => (!!(miscConfig.defaultProjectId)
-        ? this._projectService.getByIdOnce$(miscConfig.defaultProjectId).pipe(
-          tap((project) => {
-            if (!project) {
-              throw new Error('Default Project not found');
-            }
-          }),
-          mapTo(miscConfig),
-        )
-        : of(miscConfig))),
-      // error handling end
-      map(miscCfg => ({
-        defaultProjectId: miscCfg.defaultProjectId,
-        task: act.payload.task,
-      }))
-    )),
-    filter(({defaultProjectId, task}) => !!defaultProjectId && !task.projectId && !task.parentId),
-    map(({task, defaultProjectId}) => new MoveToOtherProject({
-      task: task as TaskWithSubTasks,
-      targetProjectId: defaultProjectId as string,
-    })),
-  );
-
-  @Effect()
-  shortSyntax$: any = this._actions$.pipe(
-    ofType(
-      TaskActionTypes.AddTask,
-      TaskActionTypes.UpdateTask,
-    ),
-    filter((action: AddTask | UpdateTask): boolean => {
-      if (action.type !== TaskActionTypes.UpdateTask) {
-        return true;
-      }
-      const changeProps = Object.keys((action as UpdateTask).payload.task.changes);
-      // we only want to execute this for task title updates
-      return (changeProps.length === 1 && changeProps[0] === 'title');
-    }),
-    // dirty fix to execute this after setDefaultProjectId$ effect
-    delay(20),
-    concatMap((action: AddTask | UpdateTask): Observable<any> => {
-      return this._taskService.getByIdOnce$(action.payload.task.id as string);
-    }),
-    withLatestFrom(
-      this._tagService.tags$,
-      this._projectService.list$,
-    ),
-    mergeMap(([task, tags, projects]) => {
-      const r = shortSyntax(task, tags, projects);
-      if (environment.production) {
-        console.log('shortSyntax', r);
-      }
-      if (!r) {
-        return EMPTY;
-      }
-
-      const actions: any[] = [];
-      const tagIds: string[] = [...(r.taskChanges.tagIds || task.tagIds)];
-
-      actions.push(
-        new UpdateTask({
-            task: {
-              id: task.id,
-              changes: r.taskChanges,
-            }
-          }
-        )
-      );
-      if (r.projectId && r.projectId !== task.projectId) {
-        actions.push(new MoveToOtherProject({
-          task,
-          targetProjectId: r.projectId,
-        }));
-      }
-
-      if (r.newTagTitles.length) {
-        r.newTagTitles.forEach(newTagTitle => {
-          const {action, id} = this._tagService.getAddTagActionAndId({title: newTagTitle});
-          tagIds.push(id);
-          actions.push(action);
-        });
-      }
-
-      if (tagIds && tagIds.length) {
-        const isEqualTags = (JSON.stringify(tagIds) === JSON.stringify(task.tagIds));
-        if (!task.tagIds) {
-          throw new Error('Task Old TagIds need to be passed');
-        }
-        if (!isEqualTags) {
-          actions.push(new UpdateTaskTags({
-            task,
-            newTagIds: unique(tagIds),
-            oldTagIds: task.tagIds,
-          }));
-        }
-      }
-
-      return actions;
-    }),
-  );
-
-  constructor(
-    private _actions$: Actions,
-    private _reminderService: ReminderService,
-    private _taskService: TaskService,
-    private _tagService: TagService,
-    private _projectService: ProjectService,
-    private _globalConfigService: GlobalConfigService,
-    private _persistenceService: PersistenceService
-  ) {
-  }
-
-  private async _removeFromArchive(action: RestoreTask) {
-    const task = action.payload.task;
-    const taskIds = [task.id, ...task.subTaskIds];
-    const currentArchive: TaskArchive = await this._persistenceService.taskArchive.loadState() || createEmptyEntity();
-    const allIds = currentArchive.ids as string[] || [];
-    const idsToRemove: string[] = [];
-
-    taskIds.forEach((taskId) => {
-      if (allIds.indexOf(taskId) > -1) {
-        delete currentArchive.entities[taskId];
-        idsToRemove.push(taskId);
-      }
-    });
-
-    return this._persistenceService.taskArchive.saveState({
-      ...currentArchive,
-      ids: allIds.filter((id) => !idsToRemove.includes(id)),
-    }, {isSyncModelChange: true});
-  }
-
-  private async _moveToArchive(action: MoveToArchive) {
-    const flatTasks = flattenTasks(action.payload.tasks);
-    if (!flatTasks.length) {
-      return;
-    }
-
-    const currentArchive: TaskArchive = await this._persistenceService.taskArchive.loadState() || createEmptyEntity();
-
-    const newArchive = taskAdapter.addMany(flatTasks.map(({subTasks, ...task}) => ({
-      ...task,
-      reminderId: null,
-      isDone: true,
-    })), currentArchive);
-
-    flatTasks
-      .filter(t => !!t.reminderId)
-      .forEach(t => {
-        if (!t.reminderId) {
-          throw new Error('No t.reminderId');
-        }
-        this._reminderService.removeReminder(t.reminderId);
-      });
-
-    return this._persistenceService.taskArchive.saveState(newArchive, {isSyncModelChange: true});
-  }
-
-  private _moveToOtherProject(action: MoveToOtherProject) {
-    const mainTasks = action.payload.task as TaskWithSubTasks;
-    const workContextId = action.payload.targetProjectId;
-
-    if (mainTasks.reminderId) {
-      this._reminderService.updateReminder(mainTasks.reminderId, {workContextId});
-    }
-
-    if (mainTasks.subTasks) {
-      mainTasks.subTasks.forEach((subTask) => {
-        if (subTask.reminderId) {
-          this._reminderService.updateReminder(subTask.reminderId, {workContextId});
-        }
-      });
-    }
-  }
+  // NOTE: This effect is temporarily disabled as we migrate away from updateTaskTags
+  // The tag exclusion logic for parent/child tasks needs to be revisited
+  // excludeNewTagsFromParentOrChildren$: any = createEffect(() =>
+  //   this._actions$.pipe(
+  //     ofType(TaskSharedActions.updateTask),
+  //     // TODO: Need to handle the isSkipExcludeCheck logic differently
+  //     // filter(({ isSkipExcludeCheck }) => !isSkipExcludeCheck),
+  //     switchMap(({ task }) => {
+  //       // Implementation needs to be updated to work with updateTask action
+  //       return EMPTY;
+  //     }),
+  //   ),
+  // );
 }
-
-

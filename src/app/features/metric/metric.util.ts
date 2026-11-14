@@ -1,18 +1,22 @@
 import { Worklog } from '../worklog/worklog.model';
-import { TaskWithSubTasks } from '../tasks/task.model';
-import { getWorklogStr } from '../../util/get-work-log-str';
+import { Task } from '../tasks/task.model';
+import { getDbDateStr } from '../../util/get-db-date-str';
 import { SimpleMetrics } from './metric.model';
 import { BreakNr, BreakTime } from '../work-context/work-context.model';
 import { exists } from '../../util/exists';
+import { isCompletedTask } from '../tasks/util/is-wont-do-task';
 
 // really TaskWithSubTasks?
-export const mapSimpleMetrics = (
-  [breakNr, breakTime, worklog, totalTimeSpent, allTasks]:
-    [BreakNr, BreakTime, Worklog, number, TaskWithSubTasks[]]): SimpleMetrics => {
-
+export const mapSimpleMetrics = ([
+  breakNr,
+  breakTime,
+  worklog,
+  totalTimeSpent,
+  allTasks,
+]: [BreakNr, BreakTime, Worklog, number, Task[]]): SimpleMetrics => {
   const s = {
-    start: 99999999999999999999999,
-    end: getWorklogStr(),
+    start: 999999999999999,
+    end: getDbDateStr(),
     timeSpent: totalTimeSpent,
     breakTime: Object.keys(breakTime).reduce((acc, d) => acc + breakTime[d], 0),
     breakNr: Object.keys(breakNr).reduce((acc, d) => acc + breakNr[d], 0),
@@ -27,8 +31,8 @@ export const mapSimpleMetrics = (
     }, 0),
   };
 
-  allTasks.forEach((task) => {
-    if ((task.created < s.start)) {
+  allTasks.forEach((task: Task) => {
+    if (task.created < s.start) {
       s.start = task.created;
     }
 
@@ -45,20 +49,21 @@ export const mapSimpleMetrics = (
       // s.timeSpent = s.timeSpent + Object.keys(task.timeSpentOnDay).reduce((acc, v) => acc + task.timeSpentOnDay [v], 0);
     }
 
-    if (task.isDone) {
+    // A task dismissed as won't do is finished, but it was never completed.
+    if (isCompletedTask(task)) {
       s.nrOfCompletedTasks++;
     }
   });
 
   return {
     ...s,
-    start: getWorklogStr(s.start),
+    start: getDbDateStr(s.start),
     avgBreakNr: s.breakNr / s.daysWorked,
     avgBreakTime: s.breakTime / s.daysWorked,
     avgTasksPerDay: s.nrOfMainTasks / s.daysWorked,
     avgTimeSpentOnDay: s.timeSpent / s.daysWorked,
     avgTimeSpentOnTask: s.timeSpent / s.nrOfMainTasks,
-    avgTimeSpentOnTaskIncludingSubTasks: s.timeSpent / (s.nrOfAllTasks - s.nrOfParentTasks),
-
+    avgTimeSpentOnTaskIncludingSubTasks:
+      s.timeSpent / (s.nrOfAllTasks - s.nrOfParentTasks),
   };
 };

@@ -1,146 +1,290 @@
-import { GlobalConfigState } from './global-config.model';
-import { IS_MAC } from '../../util/is-mac';
-import { IS_F_DROID_APP } from '../../util/is-android-web-view';
+import { environment } from '../../../environments/environment';
+import { DEFAULT_FOCUS_MODE_SOUND_VOLUME } from '../focus-mode/focus-mode.model';
+import {
+  HAS_OFFICIAL_ONEDRIVE_CLIENT_ID,
+  OFFICIAL_ONEDRIVE_CLIENT_ID,
+} from '../../imex/sync/onedrive-auth-mode.const';
 
-export const IS_USE_DARK_THEME_AS_DEFAULT: boolean = !IS_MAC || !window.matchMedia || window.matchMedia('(prefers-color-scheme: dark)').matches;
+import { TaskReminderOptionId } from '../tasks/task.model';
+import { GlobalConfigState } from './global-config.model';
+import { INBOX_PROJECT } from '../project/project.const';
+import { DEFAULT_MAX_BACKUP_FILES } from '../../../../electron/shared-with-frontend/backup-file-cleanup.util';
 
 const minute = 60 * 1000;
-export const DEFAULT_GLOBAL_CONFIG: GlobalConfigState = {
-  lang: {
-    lng: null
-  },
-  misc: {
-    isDarkMode: IS_USE_DARK_THEME_AS_DEFAULT,
-    isConfirmBeforeExit: false,
-    isNotifyWhenTimeEstimateExceeded: true,
-    isAutMarkParentAsDone: false,
-    isAutoStartNextTask: true,
-    isTurnOffMarkdown: false,
-    isAutoAddWorkedOnToToday: true,
-    isMinimizeToTray: false,
-    isTrayShowCurrentTask: true,
-    isDisableInitialDialog: IS_F_DROID_APP,
-    defaultProjectId: null,
-    firstDayOfWeek: 1,
-    taskNotesTpl: `**How can I best achieve it now?**
+const defaultTaskNotesTemplate = `**How can I best achieve it now?**
 
 **What do I want?**
 
 **Why do I want it?**
-`,
+`;
+
+export const DEFAULT_DAY_START = '9:00';
+export const DEFAULT_GLOBAL_CONFIG: GlobalConfigState = {
+  appFeatures: {
+    isTimeTrackingEnabled: true,
+    isFocusModeEnabled: true,
+    isSchedulerEnabled: true,
+    isPlannerEnabled: true,
+    isBoardsEnabled: true,
+    isScheduleDayPanelEnabled: true,
+    isIssuesPanelEnabled: true,
+    isProjectNotesEnabled: true,
+    isSyncIconEnabled: true,
+    isSearchEnabled: true,
+    isDonatePageEnabled: true,
+    isHabitsEnabled: true,
+    isFinishDayEnabled: true,
+  },
+  localization: {
+    lng: undefined,
+    dateTimeLocale: undefined,
+    firstDayOfWeek: undefined,
+  },
+  tasks: {
+    isConfirmBeforeDelete: true,
+    isAutoAddWorkedOnToToday: true,
+    isAutoMarkParentAsDone: false,
+    isTrayShowCurrent: true,
+    defaultProjectId: INBOX_PROJECT.id,
+    isMarkdownFormattingInNotesEnabled: true,
+    notesTemplate: defaultTaskNotesTemplate,
+    priorityIconPreset: 'chevrons',
+  },
+  misc: {
+    isConfirmBeforeExit: false,
+    isConfirmBeforeExitWithoutFinishDay: true,
+    isMinimizeToTray: false,
+    isShowDueTaskBadge: false,
+    isCheckForUpdates: true,
+    isTrayShowCurrentCountdown: true,
+    startOfNextDay: 0,
+    startOfNextDayTime: '00:00',
+    isDisableAnimations: false,
+    isVerticalActionBar: false,
+    // Confetti is attention-grabbing, so it ships off and stays opt-in
+    // (product principle: less noise, more depth). Existing installs keep
+    // their persisted value.
+    isDisableCelebration: true,
+    // NOTE: isUseCustomWindowTitleBar is intentionally NOT defaulted here. A
+    // persisted default would be pushed to Electron on every launch and override
+    // a legacy `isUseObsidianStyleHeader` choice. Its effective default is resolved
+    // at read time (main-window.ts / global-theme.service.ts: defaults on, forced
+    // off only on GNOME+Wayland) and the settings checkbox is seeded display-only
+    // in misc-settings-form (#7891).
+    isShowProductivityTipLonger: false,
+    customTheme: 'default',
+    defaultStartPage: 0,
+    backgroundImageDark: null,
+    backgroundImageLight: null,
+  },
+  shortSyntax: {
+    isEnableProject: true,
+    isEnableDue: true,
+    isEnableDeadline: false,
+    isEnablePriority: true,
+    isEnableTag: true,
+    urlBehavior: 'keep',
   },
   evaluation: {
     isHideEvaluationSheet: false,
   },
   idle: {
     isOnlyOpenIdleWhenCurrentTask: false,
+    isSuppressIdleDuringFocusMode: true,
     isEnableIdleTimeTracking: true,
     minIdleTime: 5 * minute,
-    isUnTrackedIdleResetsBreakTimer: true,
   },
   takeABreak: {
     isTakeABreakEnabled: true,
     isLockScreen: false,
+    isTimedFullScreenBlocker: false,
+    timedFullScreenBlockerDuration: 8000,
     isFocusWindow: false,
-    /* eslint-disable-next-line */
-    takeABreakMessage: 'Take a break! You have been working for ${duration} without one. Go away from the computer! Take a short walk! Makes you more productive in the long run!',
+
+    takeABreakMessage:
+      'You have been working for ${duration} without one. Go away from the computer! Take a short walk! Makes you more productive in the long run!',
     takeABreakMinWorkingTime: 60 * minute,
-    motivationalImg: null,
+    takeABreakSnoozeTime: 15 * minute,
+    motivationalImgs: [],
+  },
+  dominaMode: {
+    isEnabled: false,
+    interval: 5 * minute,
+    volume: 75,
+    text: 'Your current task is: ${currentTaskTitle}',
+    voice: '',
+  },
+  focusMode: {
+    isSkipPreparation: false,
+    isShowPreparation: false,
+    isPlayTick: false,
+    focusModeSound: 'off',
+    focusModeSoundVolume: DEFAULT_FOCUS_MODE_SOUND_VOLUME,
+    isPauseTrackingDuringBreak: true,
+    autoStartFocusOnPlay: false,
+    isManualBreakStart: false,
+  },
+  flowtime: {
+    isBreakEnabled: false,
+    breakMode: 'ratio',
+    breakPercentage: 20,
+    breakRules: [],
+  },
+  clipboardImages: {
+    imagePath: null,
   },
   pomodoro: {
-    isEnabled: false,
     duration: 25 * minute,
     breakDuration: 5 * minute,
     longerBreakDuration: 15 * minute,
     cyclesBeforeLongerBreak: 4,
-    isStopTrackingOnBreak: true,
-    isStopTrackingOnLongBreak: true,
-    isManualContinue: false,
-    isPlaySound: true,
-    isPlaySoundAfterBreak: false,
-    // isGoToWorkView: false,
-    isPlayTick: false,
   },
   keyboard: {
     globalShowHide: 'Ctrl+Shift+X',
     globalToggleTaskStart: null,
     globalAddNote: null,
     globalAddTask: null,
+    globalToggleTaskWidget: null,
     addNewTask: 'Shift+A',
-    addNewNote: 'n',
+    addNewProject: 'Shift+P',
+    addNewNote: 'Alt+N',
     openProjectNotes: 'Shift+N',
-    toggleSideNav: 'Shift+D',
+    toggleTaskViewCustomizerPanel: 'C',
+    toggleIssuePanel: 'P',
+    focusSideNav: 'Shift+D',
+    toggleSideNavMode: 'Ctrl+B',
     showHelp: '?',
-    toggleBookmarks: 'Shift+V',
-    toggleBacklog: 'b',
-    goToWorkView: 'w',
+    showSearchBar: 'Shift+F',
+    toggleBacklog: 'B',
+    goToFocusMode: 'F',
+    goToWorkView: 'W',
     goToScheduledView: 'Shift+S',
+    goToPlanner: 'Shift+L',
+    goToTimeline: 'Shift+T',
     // goToDailyAgenda: null,
     // goToFocusMode: 'Shift+F',
     goToSettings: null,
     zoomIn: 'Ctrl++',
     zoomOut: 'Ctrl+-',
     zoomDefault: 'Ctrl+0',
+    triggerSync: 'Ctrl+S',
     taskEditTitle: null,
-    taskToggleAdditionalInfoOpen: 'i',
-    taskOpenEstimationDialog: 't',
-    taskSchedule: 's',
-    taskToggleDone: 'd',
-    taskAddSubTask: 'a',
+    taskToggleDetailPanelOpen: 'I',
+    taskOpenNotesPanel: 'N',
+    taskOpenNotesFullscreen: null,
+    taskOpenEstimationDialog: 'T',
+    taskSchedule: 'S',
+    taskScheduleToday: 'Shift+T',
+    taskScheduleTomorrow: null,
+    taskScheduleNextWeek: null,
+    taskScheduleNextMonth: null,
+    taskScheduleDeadline: 'Shift+S',
+    taskUnschedule: 'U',
+    taskToggleDone: 'D',
+    taskAddSubTask: 'A',
+    taskDuplicate: 'Ctrl+D',
+    taskAddAttachment: 'L',
     taskDelete: 'Backspace',
-    taskMoveToProject: 'e',
-    taskOpenContextMenu: 'q',
-    selectPreviousTask: 'k',
-    selectNextTask: 'j',
+    taskMoveToProject: 'E',
+    taskOpenContextMenu: 'Q',
+    selectPreviousTask: 'K',
+    selectNextTask: 'J',
     moveTaskUp: 'Ctrl+Shift+ArrowUp',
     moveTaskDown: 'Ctrl+Shift+ArrowDown',
+    moveTaskToTop: 'Ctrl+Alt+ArrowUp',
+    moveTaskToBottom: 'Ctrl+Alt+ArrowDown',
     moveToBacklog: 'Shift+B',
-    moveToTodaysTasks: 'Shift+T',
     expandSubTasks: null,
     collapseSubTasks: null,
-    togglePlay: 'y',
-    taskEditTags: 'g',
+    togglePlay: 'Y',
+    taskEditTags: 'G',
+    taskToggleSelect: 'X',
   },
   localBackup: {
     isEnabled: true,
+    maxBackupFiles: DEFAULT_MAX_BACKUP_FILES,
   },
   sound: {
     volume: 75,
-    isPlayDoneSound: true,
     isIncreaseDoneSoundPitch: true,
-    doneSound: 'done2.mp3',
+    doneSound: 'ding-small-bell.mp3',
+    breakReminderSound: null,
+    trackTimeSound: null,
   },
-  trackingReminder: {
-    isEnabled: true,
-    isShowOnMobile: false,
-    minTime: minute * 2,
+  timeTracking: {
+    defaultEstimate: 0,
+    defaultEstimateSubTasks: 0,
+    isNotifyWhenTimeEstimateExceeded: true,
+    isAutoStartNextTask: false,
+    isTrackingReminderEnabled: false,
+    isTrackingReminderShowOnMobile: false,
+    trackingReminderMinTime: 5 * minute,
+    isTrackingReminderNotify: false, // Show desktop notification when tracking reminder is triggered
+    isTrackingReminderFocusWindow: false, // Focus the application window when tracking reminder is triggered
+  },
+  reminder: {
+    isCountdownBannerEnabled: true,
+    countdownDuration: minute * 10,
+    defaultTaskRemindOption: TaskReminderOptionId.AtStart, // The hard-coded default prior to this changeable setting
+    isFocusWindow: false,
+    useAlarmStyleReminders: false,
+    notifyOnDueDate: false,
+    dueDateNotificationHour: 9,
+  },
+  schedule: {
+    isWorkStartEndEnabled: true,
+    workStart: DEFAULT_DAY_START,
+    workEnd: '17:00',
+    isLunchBreakEnabled: false,
+    lunchBreakStart: '13:00',
+    lunchBreakEnd: '14:00',
   },
 
   sync: {
     isEnabled: false,
+    // TODO maybe enable later if it works well
+    isCompressionEnabled: false,
+    isEncryptionEnabled: false,
+    // Absent: join the remote format; empty folders get EMPTY_FOLDER_SYNC_FORMAT.
+    encryptKey: null,
     syncProvider: null,
     syncInterval: minute,
-
-    dropboxSync: {
-      // TODO remove / migrate
-      authCode: null,
-      accessToken: null,
-      // isCompressData: true,
-    },
-
-    googleDriveSync: {
-      isCompressData: true,
-      syncFileName: 'SUPER_PRODUCTIVITY_SYNC.json',
-      authCode: null,
-      _syncFileNameForBackupDocId: null,
-      _backupDocId: null,
-    },
+    isManualSyncOnly: false,
 
     webDav: {
       baseUrl: null,
       userName: null,
       password: null,
-      syncFilePath: null,
-    }
+      syncFolderPath: 'super-productivity',
+    },
+
+    superSync: {
+      baseUrl: environment.production
+        ? 'https://sync.super-productivity.com'
+        : 'http://localhost:1901',
+      userName: null,
+      password: null,
+      accessToken: null,
+      syncFolderPath: null,
+    },
+
+    localFileSync: {
+      syncFolderPath: '',
+    },
+
+    nextcloud: {
+      serverUrl: null,
+      loginName: null,
+      userName: null,
+      password: null,
+      syncFolderPath: 'super-productivity',
+    },
+
+    oneDrive: {
+      useCustomApp: !HAS_OFFICIAL_ONEDRIVE_CLIENT_ID,
+      clientId: OFFICIAL_ONEDRIVE_CLIENT_ID,
+      tenantId: 'common',
+      syncFolderPath: 'Super Productivity',
+    },
   },
-};
+} as const;

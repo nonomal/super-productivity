@@ -1,34 +1,60 @@
-/* eslint-disable max-len */
-import { ConfigFormSection, LocalBackupConfig } from '../global-config.model';
+import {
+  ConfigFormSection,
+  ConfigSectionAction,
+  LocalBackupConfig,
+} from '../global-config.model';
 import { T } from '../../../t.const';
-import { getElectron } from '../../../util/get-electron';
-import { IS_ELECTRON } from '../../../app.constants';
-import * as ElectronRenderer from 'electron/renderer';
+import {
+  DEFAULT_MAX_BACKUP_FILES,
+  MIN_BACKUP_FILES,
+} from '../../../../../electron/shared-with-frontend/backup-file-cleanup.util';
 
-const backupPath = IS_ELECTRON && `${(getElectron() as typeof ElectronRenderer).remote.app.getPath('userData')}/backups`;
-
-export const AUTOMATIC_BACKUPS_FORM: ConfigFormSection<LocalBackupConfig> = {
-  isElectronOnly: true,
+export const getAutomaticBackUpFormCfg = (
+  backupPath?: string,
+  actions?: ConfigSectionAction[],
+  // Pre-formatted, already-translated "Last backup: <date>" line. Passed in
+  // (rather than a raw timestamp) because the 'tpl' field streams its text
+  // verbatim and has no interpolation; non-key strings pass through translate
+  // unchanged, matching how the Electron backupPath link is rendered (#7901).
+  lastBackupInfo?: string,
+): ConfigFormSection<LocalBackupConfig> => ({
   title: T.GCF.AUTO_BACKUPS.TITLE,
   key: 'localBackup',
   help: T.GCF.AUTO_BACKUPS.HELP,
+  actions,
   items: [
-    {
-      type: 'tpl',
-      className: `tpl`,
-      templateOptions: {
-        tag: 'p',
-        text: T.GCF.AUTO_BACKUPS.LOCATION_INFO,
-      },
-    },
-    {
-      type: 'tpl',
-      className: `tpl`,
-      templateOptions: {
-        tag: 'p',
-        text: backupPath,
-      },
-    },
+    ...(lastBackupInfo
+      ? [
+          {
+            type: 'tpl',
+            className: `tpl`,
+            templateOptions: {
+              tag: 'p',
+              text: lastBackupInfo,
+            },
+          },
+        ]
+      : []),
+    ...(backupPath
+      ? [
+          {
+            type: 'tpl',
+            className: `tpl`,
+            templateOptions: {
+              tag: 'p',
+              text: T.GCF.AUTO_BACKUPS.LOCATION_INFO,
+            },
+          },
+          {
+            type: 'tpl',
+            className: `tpl`,
+            templateOptions: {
+              tag: 'p',
+              text: `<a href="file://${backupPath}" target="_blank">${backupPath}</a>`,
+            },
+          },
+        ]
+      : []),
     {
       key: 'isEnabled',
       type: 'checkbox',
@@ -36,5 +62,22 @@ export const AUTOMATIC_BACKUPS_FORM: ConfigFormSection<LocalBackupConfig> = {
         label: T.GCF.AUTO_BACKUPS.LABEL_IS_ENABLED,
       },
     },
-  ]
-};
+    ...(backupPath
+      ? [
+          {
+            key: 'maxBackupFiles' as const,
+            type: 'input',
+            hideExpression: (m: LocalBackupConfig) => !m.isEnabled,
+            templateOptions: {
+              type: 'number',
+              label: T.GCF.AUTO_BACKUPS.MAX_BACKUP_FILES,
+              description: T.GCF.AUTO_BACKUPS.MAX_BACKUP_FILES_DESCRIPTION,
+              min: MIN_BACKUP_FILES,
+              max: DEFAULT_MAX_BACKUP_FILES,
+              required: true,
+            },
+          },
+        ]
+      : []),
+  ],
+});

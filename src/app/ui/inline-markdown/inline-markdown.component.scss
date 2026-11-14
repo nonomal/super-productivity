@@ -1,4 +1,4 @@
-@import "../../../_variables";
+@use '../../../styles/_globals.scss' as *;
 
 :host {
   display: block;
@@ -15,13 +15,13 @@
   border: none;
   overflow: auto;
   position: relative;
-  transition: height $transition-fast;
+  transition: height var(--transition-fast);
   transform-origin: top;
   @include scrollY;
 
   .resize-to-fit {
     position: absolute;
-    right: $s*2;
+    right: var(--s2);
     top: 0;
     cursor: pointer;
   }
@@ -31,15 +31,20 @@
   }
 }
 
-.markdown-unparsed,
-.markdown-parsed {
+.markdown-unparsed {
+  // The textarea sat at 14px via .mat-body-2, so it triggered the iOS zoom. The
+  // live editor raises its own font size to match (see live-markdown-theme), so
+  // the description does not change size when markdown formatting is turned off
+  // (#9556).
+  @include noIosFocusZoomOnTouch();
   //transition: height 1.3s;
   border: 0;
-  padding: $s $s*2;
+  padding: var(--s) var(--s2);
   margin: 0;
   width: 100%;
   box-sizing: border-box;
-  word-wrap: break-word;
+  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   display: block;
   resize: none;
   min-height: inherit;
@@ -47,39 +52,19 @@
   cursor: text;
 }
 
-.markdown-parsed ::ng-deep {
-  *:first-child {
-    margin-top: 0;
-    padding-top: 0;
-  }
+.markdown-unparsed {
+  white-space: pre-wrap;
+}
 
-
-  h1,
-  h2,
-  h3 {
-    &,
-    .mat-typography & {
-      margin-bottom: $s;
-      margin-top: $s*2;
-
-      &:first-child {
-        margin-top: 0;
-        padding-top: 0;
-      }
-    }
-  }
-
-  ul {
-    margin: 0 $s;
-    padding-left: $s*2;
-  }
-
-  > ul {
-    padding-left: $s*2;
-  }
-
-  ul ul {
-    padding-top: 0;
+:host:has(.controls) {
+  // Reserve space below the note so the hover controls (checklist, fullscreen)
+  // sit under the text instead of over its last line — otherwise they hide the
+  // text and, being buttons, swallow the clicks meant to select it (#10544).
+  // The live editor (#10068) needs the same reservation the textarea has; it
+  // only ever covered `.markdown-unparsed`, so the live path had none.
+  .markdown-unparsed,
+  live-markdown-editor {
+    padding-bottom: var(--s5);
   }
 }
 
@@ -92,9 +77,12 @@ textarea {
   bottom: 0;
   right: 0;
   opacity: 0;
-  transition: $transition-standard;
+  transition: var(--transition-standard);
 
   :host:hover & {
     opacity: 1;
+  }
+  @include touchPrimaryDevice {
+    opacity: 0.5;
   }
 }

@@ -1,12 +1,21 @@
-import { Pipe, PipeTransform } from '@angular/core';
+import { inject, Pipe, PipeTransform } from '@angular/core';
 import { IssueProviderKey } from '../issue.model';
-import { issueProviderIconMap } from '../issue.const';
+import { ISSUE_PROVIDER_ICON_MAP } from '../issue.const';
+import { PluginIssueProviderRegistryService } from '../../../plugins/issue-provider/plugin-issue-provider-registry.service';
+import { BuiltInIssueProviderKey } from '../issue.model';
 
-@Pipe({
-  name: 'issueIcon'
-})
+@Pipe({ standalone: true, name: 'issueIcon' })
 export class IssueIconPipe implements PipeTransform {
-  transform(value: IssueProviderKey, args?: any): any {
-    return issueProviderIconMap[value];
+  private _pluginRegistry = inject(PluginIssueProviderRegistryService);
+
+  // NOTE: null is only accepted to make view more performant
+  transform(value?: IssueProviderKey, args?: any): any {
+    if (!value) {
+      return undefined;
+    }
+    if (this._pluginRegistry.hasProvider(value)) {
+      return this._pluginRegistry.getSvgIcon(value);
+    }
+    return ISSUE_PROVIDER_ICON_MAP[value as BuiltInIssueProviderKey];
   }
 }

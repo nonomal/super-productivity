@@ -1,8 +1,14 @@
-@mixin responsiveRatio($x,$y, $pseudo: false) {
-  $padding: unquote(( $y / $x ) * 100 + '%');
+@use 'sass:math';
+
+@use '../functions/_ddivide';
+@use './pseudo';
+
+@mixin responsiveRatio($x, $y, $pseudo: false) {
+  $padding: (ddivide.ddivide(math.div($y, $x))) * 100 + '%';
+
   @if $pseudo {
     &:before {
-      @include pseudo($pos: relative);
+      @include pseudo.pseudo($pos: relative);
       width: 100%;
       padding-top: $padding;
     }

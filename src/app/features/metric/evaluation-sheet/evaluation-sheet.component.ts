@@ -1,128 +1,74 @@
-import {
-  ChangeDetectionStrategy,
-  ChangeDetectorRef,
-  Component,
-  EventEmitter,
-  Input,
-  OnDestroy,
-  OnInit,
-  Output
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { MetricCopy } from '../metric.model';
 import { MetricService } from '../metric.service';
-import { ObstructionService } from '../obstruction/obstruction.service';
-import { ImprovementService } from '../improvement/improvement.service';
-import { BehaviorSubject, Observable, Subscription } from 'rxjs';
-import { getWorklogStr } from '../../../util/get-work-log-str';
-import { switchMap } from 'rxjs/operators';
+import { Observable } from 'rxjs';
+import { shareReplay, switchMap } from 'rxjs/operators';
 import { T } from '../../../t.const';
-import { DialogAddNoteComponent } from '../../note/dialog-add-note/dialog-add-note.component';
-import { MatDialog } from '@angular/material/dialog';
+import { FormsModule } from '@angular/forms';
+import { MatRadioButton, MatRadioGroup } from '@angular/material/radio';
+import { TranslatePipe } from '@ngx-translate/core';
+import { ImpactStarsComponent } from '../impact-stars/impact-stars.component';
+import { ReflectionNoteComponent } from '../reflection-note/reflection-note.component';
+import { GlobalTrackingIntervalService } from '../../../core/global-tracking-interval/global-tracking-interval.service';
 
 @Component({
   selector: 'evaluation-sheet',
   templateUrl: './evaluation-sheet.component.html',
   styleUrls: ['./evaluation-sheet.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    FormsModule,
+    MatRadioGroup,
+    MatRadioButton,
+    TranslatePipe,
+    ImpactStarsComponent,
+    ReflectionNoteComponent,
+  ],
 })
-export class EvaluationSheetComponent implements OnDestroy, OnInit {
-  @Output() save: EventEmitter<any> = new EventEmitter();
-  T: typeof T = T;
-  metricForDay?: MetricCopy;
-  day$: BehaviorSubject<string> = new BehaviorSubject(getWorklogStr());
-  private _metricForDay$: Observable<MetricCopy> = this.day$.pipe(
-    switchMap((day) => this._metricService.getMetricForDayOrDefaultWithCheckedImprovements$(day)),
+export class EvaluationSheetComponent {
+  private readonly _metricService = inject(MetricService);
+  private readonly _globalTrackingIntervalService = inject(GlobalTrackingIntervalService);
+
+  readonly dayStr$ = input<Observable<string> | null>(null);
+  readonly isWeek = input(false);
+
+  readonly T = T;
+  // Internal signals
+
+  private readonly _day$ = toObservable(this.dayStr$).pipe(
+    switchMap((custom$) => custom$ ?? this._globalTrackingIntervalService.todayDateStr$),
+    shareReplay({ bufferSize: 1, refCount: true }),
   );
-  // isForToday$: Observable<boolean> = this.day$.pipe(map(day => day === getWorklogStr()));
-  private _subs: Subscription = new Subscription();
+  readonly day = toSignal(this._day$, {
+    initialValue: this._globalTrackingIntervalService.todayDateStr(),
+  });
 
-  constructor(
-    public obstructionService: ObstructionService,
-    public improvementService: ImprovementService,
-    private _metricService: MetricService,
-    private _matDialog: MatDialog,
-    private _cd: ChangeDetectorRef,
-  ) {
+  // Metric data for the selected day
+  readonly metricForDay = toSignal<MetricCopy | undefined>(
+    this._day$.pipe(switchMap((day) => this._metricService.getMetricForDay$(day))),
+    { initialValue: undefined },
+  );
+
+  updateImpactOfWork(impactOfWork: number): void {
+    this._update({ impactOfWork });
   }
 
-  @Input() set day(val: string) {
-    this.day$.next(val);
+  updateEnergyCheckin(energyCheckin: number): void {
+    this._update({ energyCheckin });
   }
 
-  ngOnInit(): void {
-    this._subs.add(this._metricForDay$.subscribe(metric => {
-      this.metricForDay = metric;
-      this._cd.detectChanges();
-    }));
-  }
+  private _update(updateData: Partial<MetricCopy>): void {
+    const currentMetric = this.metricForDay();
+    if (!currentMetric) {
+      return;
+    }
 
-  ngOnDestroy(): void {
-    this._subs.unsubscribe();
-  }
-
-  updateMood(mood: number) {
-    this._update({mood});
-  }
-
-  updateProductivity(productivity: number) {
-    this._update({productivity});
-  }
-
-  addObstruction(v: string) {
-    this._update({obstructions: [...(this.metricForDay as MetricCopy).obstructions, v]});
-  }
-
-  addNewObstruction(v: string) {
-    const id = this.obstructionService.addObstruction(v);
-    this._update({obstructions: [...(this.metricForDay as MetricCopy).obstructions, id]});
-  }
-
-  removeObstruction(idToRemove: string) {
-    this._update({obstructions: (this.metricForDay as MetricCopy).obstructions.filter(id => id !== idToRemove)});
-  }
-
-  addImprovement(v: string) {
-    this._update({improvements: [...(this.metricForDay as MetricCopy).improvements, v]});
-  }
-
-  addNewImprovement(v: string) {
-    const id = this.improvementService.addImprovement(v);
-    this._update({improvements: [...(this.metricForDay as MetricCopy).improvements, id]});
-  }
-
-  removeImprovement(idToRemove: string) {
-    this._update({improvements: (this.metricForDay as MetricCopy).improvements.filter(id => id !== idToRemove)});
-  }
-
-  addImprovementTomorrow(v: string) {
-    this._update({improvementsTomorrow: [...(this.metricForDay as MetricCopy).improvementsTomorrow, v]});
-  }
-
-  addNewImprovementTomorrow(v: string) {
-    const id = this.improvementService.addImprovement(v);
-    this._update({improvementsTomorrow: [...(this.metricForDay as MetricCopy).improvementsTomorrow, id]});
-  }
-
-  removeImprovementTomorrow(idToRemove: string) {
-    this._update({
-      improvementsTomorrow: (this.metricForDay as MetricCopy).improvementsTomorrow.filter(id => id !== idToRemove),
-    });
-    // this.improvementService.disableImprovementRepeat(idToRemove);
-  }
-
-  toggleImprovementRepeat(improvementId: string) {
-    this.improvementService.toggleImprovementRepeat(improvementId);
-  }
-
-  addNote() {
-    this._matDialog.open(DialogAddNoteComponent);
-  }
-
-  private _update(updateData: Partial<MetricCopy>) {
-    this.metricForDay = {
-      ...(this.metricForDay as MetricCopy),
+    const updatedMetric: MetricCopy = {
+      ...currentMetric,
       ...updateData,
-    } as MetricCopy;
-    this._metricService.upsertMetric((this.metricForDay as MetricCopy));
+    };
+
+    this._metricService.upsertMetric(updatedMetric);
   }
 }

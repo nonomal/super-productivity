@@ -6,9 +6,32 @@ export const createFromDrop = (ev: DragEvent): null | DropPasteInput => {
     throw new Error('No drop data');
   }
   const text = ev.dataTransfer.getData('text');
-  return text
-    ? (_createTextBookmark(text))
-    : (_createFileBookmark(ev.dataTransfer));
+  return text ? _createTextBookmark(text) : _createFileBookmark(ev.dataTransfer);
+};
+
+/**
+ * Extract a single http(s) web link from a drag event, or null when the drop
+ * isn't a shareable link (files, plain-text selections, or non-web schemes).
+ *
+ * Reads both `text/uri-list` and `text/plain` because sources disagree on where
+ * the URL lives: browsers dragging a hyperlink populate `text/uri-list` with the
+ * bare URL, while `text/plain` is often `"<url>\n<page title>"` (and Electron
+ * cross-app drops may fill only one of them). We scan every line and take the
+ * first that is exactly an http(s) URL — a line with inner whitespace is a text
+ * selection, not a link, so it's skipped.
+ */
+export const getDroppedUrl = (ev: DragEvent): string | null => {
+  const dt = ev.dataTransfer;
+  if (!dt) {
+    return null;
+  }
+  const lines = `${dt.getData('text/uri-list')}\n${dt.getData('text/plain')}`.split(
+    /[\r\n]+/,
+  );
+  return (
+    lines.map((line) => line.trim()).find((line) => /^https?:\/\/\S+$/i.test(line)) ??
+    null
+  );
 };
 
 export const createFromPaste = (ev: ClipboardEvent): null | DropPasteInput => {
@@ -22,7 +45,7 @@ export const createFromPaste = (ev: ClipboardEvent): null | DropPasteInput => {
   return null;
 };
 
-function _createTextBookmark(text: string): null | DropPasteInput {
+const _createTextBookmark = (text: string): null | DropPasteInput => {
   if (text) {
     if (text.match(/\n/)) {
       // addItem({
@@ -45,22 +68,35 @@ function _createTextBookmark(text: string): null | DropPasteInput {
     }
   }
   return null;
-}
+};
 
-function _createFileBookmark(dataTransfer: DataTransfer): null | DropPasteInput {
-  const path = dataTransfer.files[0] && dataTransfer.files[0].path;
-  if (path) {
-    return {
-      title: _baseName(path),
-      path,
-      type: 'FILE',
-      icon: DropPasteIcons.FILE,
-    };
+const _createFileBookmark = (dataTransfer: DataTransfer): null | DropPasteInput => {
+  const file = dataTransfer.files[0];
+  if (!file) {
+    return null;
   }
-  return null;
-}
 
-function _baseName(passedStr: string) {
+  // Electron 32+ removed the non-standard File.path property. Without the
+  // absolute path the attachment only stores the bare file name, so "open"
+  // silently fails (shell.openPath can't resolve a relative path). Recover it
+  // via webUtils.getPathForFile (exposed on window.ea, Electron-only). See
+  // issue #8553.
+  const path = window.ea?.getPathForFile?.(file) || file.name;
+  if (!path) {
+    return null;
+  }
+
+  // Keep the title clean (file.name is already the bare name) so it isn't the
+  // full OS path once `path` resolves to an absolute Windows/Unix path.
+  return {
+    title: _baseName(file.name || path),
+    path,
+    type: 'FILE',
+    icon: DropPasteIcons.FILE,
+  };
+};
+
+const _baseName = (passedStr: string): string => {
   const str = passedStr.trim();
   let base;
   if (str[str.length - 1] === '/') {
@@ -74,4 +110,4 @@ function _baseName(passedStr: string) {
     base = base.substring(0, base.lastIndexOf('.'));
   }
   return base;
-}
+};

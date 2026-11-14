@@ -3,7 +3,7 @@ import { WorklogExportSettings } from '../worklog/worklog.model';
 // normally imported from here, but this includes non type files as well..
 // import {HueValue} from 'angular-material-css-vars';
 type HueValue =
-  '50'
+  | '50'
   | '100'
   | '200'
   | '300'
@@ -18,6 +18,7 @@ type HueValue =
   | 'A400'
   | 'A700';
 
+// TODO REMOVE OR MOVE AND LEGACY RENAME ALL THESE
 export interface BreakTimeCopy {
   [key: string]: number;
 }
@@ -40,49 +41,51 @@ export type WorkContextAdvancedCfg = Readonly<{
   worklogExportSettings: WorklogExportSettings;
 }>;
 
+// TODO handle more strictly
 export type WorkContextThemeCfg = Readonly<{
-  isAutoContrast: boolean;
-  isDisableBackgroundGradient: boolean;
-  primary: string;
-  huePrimary: HueValue;
-  accent: string;
-  hueAccent: HueValue;
-  warn: string;
-  hueWarn: HueValue;
-  backgroundImageDark: string | null;
-  backgroundImageLight: string | null;
+  isAutoContrast?: boolean;
+  isDisableBackgroundTint?: boolean;
+  primary?: string;
+  huePrimary?: HueValue;
+  accent?: string;
+  hueAccent?: HueValue;
+  warn?: string;
+  hueWarn?: HueValue;
+  backgroundImageDark?: string | null;
+  backgroundImageLight?: string | null;
+  backgroundOverlayOpacity?: number;
+  backgroundImageBlur?: number;
 }>;
 
 export enum WorkContextType {
   PROJECT = 'PROJECT',
-  TAG = 'TAG'
+  TAG = 'TAG',
 }
 
 export interface WorkContextCommon {
-  workStart: WorkStartEnd;
-  workEnd: WorkStartEnd;
-  breakTime: BreakTime;
-  breakNr: BreakNr;
   advancedCfg: WorkContextAdvancedCfg;
   theme: WorkContextThemeCfg;
+  icon?: string | null;
+  taskIds: string[];
+  id: string;
+  title: string;
 }
 
 export type WorkContextAdvancedCfgKey = keyof WorkContextAdvancedCfg;
 
 export interface WorkContextCopy extends WorkContextCommon {
-  id: string;
-  title: string;
-  icon: string | null;
+  icon?: string | null;
   routerLink: string;
-  taskIds: string[];
+  isEnableBacklog?: boolean;
   backlogTaskIds?: string[];
+  noteIds: string[];
   type: WorkContextType;
 }
 
 export type WorkContext = Readonly<WorkContextCopy>;
 
 export interface WorkContextState {
-  activeId: string | null;
-  activeType: WorkContextType | null;
+  activeId: string;
+  activeType: WorkContextType;
   // additional entities state properties
 }

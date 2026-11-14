@@ -1,31 +1,60 @@
-import { Observable } from 'rxjs';
-import { IssueData, IssueDataReduced, SearchResultItem } from './issue.model';
-import { Task } from '../tasks/task.model';
+import {
+  IssueData,
+  IssueDataReduced,
+  IssueIntegrationCfg,
+  SearchResultItem,
+} from './issue.model';
+import { IssueTask, Task } from '../tasks/task.model';
 import { TaskAttachment } from '../tasks/task-attachment/task-attachment.model';
 
 export interface IssueServiceInterface {
-  issueLink$(issueId: string | number, projectId: string): Observable<string>;
+  // MANDATORY
+  // ---------
+  isEnabled(cfg: IssueIntegrationCfg): boolean;
 
-  getById$(id: string | number, projectId: string): Observable<IssueData>;
+  testConnection(cfg: IssueIntegrationCfg): Promise<boolean>;
 
-  getAddTaskData(issueData: IssueDataReduced): { title: string; additionalFields: Partial<Task> };
+  pollInterval: number; // 0 means no polling
 
-  searchIssues$?(searchTerm: string, projectId: string): Observable<SearchResultItem[]>;
+  issueLink(issueId: string | number, issueProviderId: string): Promise<string>;
 
-  refreshIssue?(task: Task,
-    isNotifySuccess: boolean,
-    isNotifyNoUpdateRequired: boolean): Promise<{
+  getById(id: string | number, issueProviderId: string): Promise<IssueData | null>;
+
+  getAddTaskData(issueData: IssueDataReduced): IssueTask;
+
+  searchIssues(searchTerm: string, issueProviderId: string): Promise<SearchResultItem[]>;
+
+  // also used to determine if task is done
+  getFreshDataForIssueTask(task: Task): Promise<{
     taskChanges: Partial<Task>;
     issue: IssueData;
+    issueTitle: string;
   } | null>;
 
-  refreshIssues?(tasks: Task[],
-    isNotifySuccess: boolean,
-    isNotifyNoUpdateRequired: boolean): Promise<{
-    task: Task;
-    taskChanges: Partial<Task>;
-    issue: IssueData;
-  }[]>;
+  getFreshDataForIssueTasks(tasks: Task[]): Promise<
+    {
+      task: Task;
+      taskChanges: Partial<Task>;
+      issue: IssueData;
+    }[]
+  >;
 
-  getMappedAttachments?(issueDataIN: IssueData): TaskAttachment[];
+  // OPTIONAL
+  // --------
+
+  getMappedAttachments?(issueData: IssueData): TaskAttachment[];
+
+  getNewIssuesToAddToBacklog?(
+    issueProviderId: string,
+    allExistingIssueIds: number[] | string[],
+  ): Promise<IssueDataReduced[]>;
+
+  getSubTasks?(
+    issueId: string | number,
+    issueProviderId: string,
+    issue: IssueDataReduced,
+  ): Promise<IssueDataReduced[]>;
+
+  // TODO could be called when task is updated from issue, whenever task is updated
+  updateIssueFromTask?(task: Task): Promise<void>;
 }

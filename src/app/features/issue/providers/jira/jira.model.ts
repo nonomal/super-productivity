@@ -1,32 +1,48 @@
 import { JiraOriginalTransition } from './jira-api-responses';
+import { BaseIssueProviderCfg } from '../../issue.model';
 
-export type JiraTransitionOption = 'ALWAYS_ASK' | 'DO_NOT' | JiraOriginalTransition;
+// TODO this needs to be addressed to be either string or JiraOriginalTransition, but not both
+export type JiraTransitionOption =
+  | 'ALWAYS_ASK'
+  | 'DO_NOT'
+  | JiraOriginalTransition
+  | string;
+
+export enum JiraWorklogExportDefaultTime {
+  AllTime = 'AllTime',
+  TimeToday = 'TimeToday',
+  TimeYesterday = 'TimeYesterday',
+  AllTimeMinusLogged = 'AllTimeMinusLogged',
+}
 
 export interface JiraTransitionConfig {
   // NOTE: keys mirror IssueLocalState type
-  OPEN: JiraTransitionOption;
+  // todo remove this with a proper migration since currently not used
+  OPEN?: JiraTransitionOption;
   IN_PROGRESS: JiraTransitionOption;
   DONE: JiraTransitionOption;
 }
 
-export interface JiraCfg {
-  isEnabled: boolean;
+export interface JiraCfg extends BaseIssueProviderCfg {
   _isBlockAccess: boolean;
   host: string | null;
   userName: string | null;
   password?: string | null;
-  isAutoPollTickets: boolean;
-  isWonkyCookieMode: boolean;
+  usePAT: boolean;
+  // Optional so Jira providers created before #7628 (v18.10.0) still validate —
+  // data on disk predating these fields must not fail typia. Read sites treat a
+  // missing value as the DEFAULT_JIRA_CFG default (false / null). CLAUDE.md rule 11.
+  allowFetchFallback?: boolean;
+  altPublicLinkHost?: string | null;
 
   isAllowSelfSignedCertificate: boolean;
   searchJqlQuery: string;
 
-  isAutoAddToBacklog: boolean;
   autoAddBacklogJqlQuery: string;
 
   isWorklogEnabled: boolean;
-  isAutoWorklog: boolean;
   isAddWorklogOnSubTaskDone: boolean;
+  worklogDialogDefaultTime: JiraWorklogExportDefaultTime;
 
   isUpdateIssueFromLocal: boolean;
 
@@ -66,4 +82,3 @@ isCheckToReAssignTicket ==> via change current task
 transitioning ==> via time tracking state
 
  */
-

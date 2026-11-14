@@ -1,28 +1,19 @@
-import { Directive, HostListener, Input } from '@angular/core';
+import { Directive, HostListener, inject, input } from '@angular/core';
 import { IS_ELECTRON } from '../../../../app.constants';
 import { TaskAttachmentType } from '../task-attachment.model';
 import { SnackService } from '../../../../core/snack/snack.service';
-import { IPC } from '../../../../../../electron/ipc-events.const';
 import { T } from '../../../../t.const';
-import { ElectronService } from '../../../../core/electron/electron.service';
-import { ipcRenderer, shell } from 'electron';
 
-@Directive({
-  selector: '[taskAttachmentLink]'
-})
+@Directive({ selector: '[taskAttachmentLink]' })
 export class TaskAttachmentLinkDirective {
+  private _snackService = inject(SnackService);
 
-  @Input() type?: TaskAttachmentType;
-  @Input() href?: TaskAttachmentType;
+  readonly type = input<TaskAttachmentType>();
+  readonly href = input<string>();
 
-  constructor(
-    private _electronService: ElectronService,
-    private _snackService: SnackService,
-  ) {
-  }
-
-  @HostListener('click', ['$event']) onClick(ev: Event) {
-    if (!this.href) {
+  @HostListener('click', ['$event']) onClick(ev: Event): void {
+    const href = this.href();
+    if (!href) {
       throw new Error('No href');
     }
 
@@ -30,26 +21,42 @@ export class TaskAttachmentLinkDirective {
       const el = ev.target as HTMLElement;
       el.blur();
     }
+
+    if (!IS_ELECTRON && this._isLocalFileUrl(href)) {
+      ev.preventDefault();
+      this._snackService.open({
+        msg: T.F.ATTACHMENT.LOCAL_FILE_UNAVAILABLE,
+        type: 'ERROR',
+      });
+      return;
+    }
+
     if (IS_ELECTRON) {
       ev.preventDefault();
-      if (!this.type || this.type === 'LINK') {
-        this._openExternalUrl(this.href);
-      } else if (this.type === 'FILE') {
-        (this._electronService.shell as typeof shell).openPath(this.href);
-      } else if (this.type === 'COMMAND') {
+      const type = this.type();
+      if (!type || type === 'LINK') {
+        this._openExternalUrl(href);
+      } else if (type === 'FILE') {
+        window.ea.openPath(href);
+      } else if (type === 'COMMAND') {
+        // COMMAND attachments can no longer run shell commands: the exec IPC was
+        // removed to close GHSA-256q. Legacy/imported COMMAND attachments still
+        // render but are inert on click.
         this._snackService.open({
-          msg: T.GLOBAL_SNACK.RUNNING_X,
-          translateParams: {str: this.href},
-          ico: 'laptop_windows',
+          msg: T.F.ATTACHMENT.COMMAND_UNSUPPORTED,
+          type: 'ERROR',
         });
-        this._exec(this.href);
       }
-    } else if (this.type === 'LINK') {
-      this._openExternalUrl(this.href);
+    } else if (this.type() === 'LINK') {
+      this._openExternalUrl(href);
     }
   }
 
-  private _openExternalUrl(rawUrl: string) {
+  private _isLocalFileUrl(url: string): boolean {
+    return url.toLowerCase().startsWith('file://');
+  }
+
+  private _openExternalUrl(rawUrl: string): void {
     if (!rawUrl) {
       return;
     }
@@ -60,16 +67,12 @@ export class TaskAttachmentLinkDirective {
       .replace('http://http://', 'http://');
 
     if (IS_ELECTRON) {
-      (this._electronService.shell as typeof shell).openExternal(url);
+      window.ea.openExternalUrl(url);
     } else {
       const win = window.open(url, '_blank');
       if (win) {
         win.focus();
       }
     }
-  }
-
-  private _exec(command: string) {
-    (this._electronService.ipcRenderer as typeof ipcRenderer).send(IPC.EXEC, command);
   }
 }

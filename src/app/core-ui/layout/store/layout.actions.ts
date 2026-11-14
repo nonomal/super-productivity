@@ -1,30 +1,32 @@
 import { createAction } from '@ngrx/store';
 
-export const showAddTaskBar = createAction(
-  '[Layout] Show AddTaskBar',
+export const showAddTaskBar = createAction('[Layout] Show AddTaskBar');
+
+export const hideAddTaskBar = createAction('[Layout] Hide AddTaskBar');
+
+export const toggleShowNotes = createAction('[Layout] ToggleShow Notes');
+
+export const hideNonTaskSidePanelContent = createAction(
+  '[Layout] Hide Non-Task Side Panel',
 );
 
-export const hideAddTaskBar = createAction(
-  '[Layout] Hide AddTaskBar',
+export const toggleIssuePanel = createAction('[Layout] Toggle IssuePanel');
+
+export const hideIssuePanel = createAction('[Layout] Hide IssuePanel');
+
+export const showPluginPanel = createAction(
+  '[Layout] Show PluginPanel',
+  (pluginId: string) => ({ pluginId }),
 );
 
-export const toggleAddTaskBar = createAction(
-  '[Layout] Toggle AddTaskBar',
+export const hidePluginPanel = createAction('[Layout] Hide PluginPanel');
+
+export const togglePluginPanel = createAction(
+  '[Layout] Toggle PluginPanel',
+  (pluginId: string) => ({ pluginId }),
 );
 
-export const hideSideNav = createAction(
-  '[Layout] Hide SideBar',
-);
+// Schedule Day Panel
+export const toggleScheduleDayPanel = createAction('[Layout] Toggle ScheduleDayPanel');
 
-export const toggleSideNav = createAction(
-  '[Layout] Toggle SideBar',
-);
-
-export const toggleShowNotes = createAction(
-  '[Layout] ToggleShow Notes',
-);
-
-export const hideNotes = createAction(
-  '[Layout] Hide Notes',
-);
-
+export const hideScheduleDayPanel = createAction('[Layout] Hide ScheduleDayPanel');

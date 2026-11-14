@@ -1,277 +1,194 @@
-import { Action } from '@ngrx/store';
+import { createAction, props } from '@ngrx/store';
 import { Update } from '@ngrx/entity';
-import { Task, TaskAdditionalInfoTargetPanel, TaskWithSubTasks } from '../task.model';
-import { IssueDataReduced } from '../../issue/issue.model';
+import { Task, TaskDetailTargetPanel } from '../task.model';
 import { RoundTimeOption } from '../../project/project.model';
-import { WorkContextType } from '../../work-context/work-context.model';
+import { PersistentActionMeta } from '../../../op-log/core/persistent-action.interface';
+import { OpType } from '../../../op-log/core/operation.types';
+import { clearedFieldsProps } from '../../../util/cleared-update-fields';
 
-export enum TaskActionTypes {
-  'SetCurrentTask' = '[Task] SetCurrentTask',
-  'SetSelectedTask' = '[Task] SetSelectedTask',
-  'UnsetCurrentTask' = '[Task] UnsetCurrentTask',
+export const setCurrentTask = createAction(
+  '[Task] SetCurrentTask',
+  props<{
+    id: string | null;
+  }>(),
+);
 
-  // Task Actions
-  'AddTask' = '[Task][Issue] Add Task',
-  'UpdateTaskUi' = '[Task] Update Task Ui',
-  'UpdateTaskTags' = '[Task] Update Task Tags',
-  'RemoveTagsForAllTasks' = '[Task] Remove Tags from all Tasks',
-  'ToggleTaskShowSubTasks' = '[Task] Toggle Show Sub Tasks',
-  'UpdateTask' = '[Task] Update Task',
-  'UpdateTasks' = '[Task] Update Tasks',
-  'DeleteTask' = '[Task] Delete Task',
-  'DeleteMainTasks' = '[Task] Delete Main Tasks',
-  'UndoDeleteTask' = '[Task] Undo Delete Task',
-  'MoveSubTask' = '[Task] Move sub task',
-  'MoveSubTaskUp' = '[Task] Move up',
-  'MoveSubTaskDown' = '[Task] Move down',
-  'AddTimeSpent' = '[Task] Add time spent',
-  'RemoveTimeSpent' = '[Task] Remove time spent',
+export const setSelectedTask = createAction(
+  '[Task] SetSelectedTask',
+  props<{
+    id: string | null;
+    taskDetailTargetPanel?: TaskDetailTargetPanel;
+    isSkipToggle?: boolean;
+  }>(),
+);
 
-  // Reminders
-  'AddTaskReminder' = '[Task] Add reminder',
-  'UpdateTaskReminder' = '[Task] Update reminder',
-  'RemoveTaskReminder' = '[Task] Remove reminder',
+export const unsetCurrentTask = createAction('[Task] UnsetCurrentTask');
 
-  // Sub Task Actions
-  'AddSubTask' = '[Task] Add SubTask',
-  'ConvertToMainTask' = '[Task] Convert SubTask to main task',
+export const __updateMultipleTaskSimple = createAction(
+  '[Task] Update multiple Tasks (simple)',
+  (taskProps: { taskUpdates: Update<Task>[]; isIgnoreShortSyntax?: boolean }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityIds: taskProps.taskUpdates.map((u) => u.id as string),
+      opType: OpType.Update,
+      isBulk: true,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  // Other
-  'RestoreTask' = '[Task] Restore Task',
-  'MoveToArchive' = '[Task] Move to archive',
-  'MoveToOtherProject' = '[Task] Move tasks to other project',
-  'ToggleStart' = '[Task] Toggle start',
-  'RoundTimeSpentForDay' = '[Task] RoundTimeSpentForDay',
+// NOTE: despite the "Ui" name this carries _hideSubTasksMode, which is task
+// data that must survive a restart. It is persisted (op-log) like updateTask so
+// the collapse state is not lost on reload. See issue #8781.
+// It is a plain field update: no effect and no task meta-reducer reacts to it.
+// Two-way sync relies on that to write a post-push baseline together with the
+// pushed fields' unchanged values, isDone included (#11034).
+export const updateTaskUi = createAction(
+  '[Task] Update Task Ui',
+  (taskProps: { task: Update<Task> }) => ({
+    ...taskProps,
+    // `changes: { someField: undefined }` loses the key at JSON.stringify on
+    // every sync path; list cleared keys out-of-band so replay restores them
+    // (issue #9776 — e.g. expanding subtasks never synced).
+    ...clearedFieldsProps(taskProps.task.changes),
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.task.id as string,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-}
+export const removeTagsForAllTasks = createAction(
+  '[Task] Remove Tags from all Tasks',
+  props<{ tagIdsToRemove: string[] }>(),
+);
 
-export class SetCurrentTask implements Action {
-  readonly type: string = TaskActionTypes.SetCurrentTask;
-
-  constructor(public payload: string | null) {
-  }
-}
-
-export class SetSelectedTask implements Action {
-  readonly type: string = TaskActionTypes.SetSelectedTask;
-
-  constructor(public payload: { id: string | null; taskAdditionalInfoTargetPanel?: TaskAdditionalInfoTargetPanel }) {
-  }
-}
-
-export class UnsetCurrentTask implements Action {
-  readonly type: string = TaskActionTypes.UnsetCurrentTask;
-}
-
-export class AddTask implements Action {
-  readonly type: string = TaskActionTypes.AddTask;
-
-  constructor(public payload: {
-    task: Task;
-    issue?: IssueDataReduced;
-    workContextId: string;
-    workContextType: WorkContextType;
-    isAddToBacklog: boolean;
-    isAddToBottom: boolean;
-  }) {
-  }
-}
-
-export class UpdateTask implements Action {
-  readonly type: string = TaskActionTypes.UpdateTask;
-
-  constructor(public payload: { task: Update<Task> }) {
-  }
-}
-
-export class UpdateTaskUi implements Action {
-  readonly type: string = TaskActionTypes.UpdateTaskUi;
-
-  constructor(public payload: { task: Update<Task> }) {
-  }
-}
-
-export class UpdateTaskTags implements Action {
-  readonly type: string = TaskActionTypes.UpdateTaskTags;
-
-  constructor(public payload: { task: Task; newTagIds: string[]; oldTagIds: string[] }) {
-  }
-}
-
-export class RemoveTagsForAllTasks implements Action {
-  readonly type: string = TaskActionTypes.RemoveTagsForAllTasks;
-
-  constructor(public payload: { tagIdsToRemove: string[] }) {
-  }
-}
-
-export class ToggleTaskShowSubTasks implements Action {
-  readonly type: string = TaskActionTypes.ToggleTaskShowSubTasks;
-
-  constructor(public payload: { taskId: string; isShowLess: boolean; isEndless: boolean }) {
-  }
-}
-
-export class UpdateTasks implements Action {
-  readonly type: string = TaskActionTypes.UpdateTasks;
-
-  constructor(public payload: { tasks: Update<Task>[] }) {
-  }
-}
-
-export class DeleteTask implements Action {
-  readonly type: string = TaskActionTypes.DeleteTask;
-
-  constructor(public payload: { task: TaskWithSubTasks }) {
-  }
-}
-
-export class DeleteMainTasks implements Action {
-  readonly type: string = TaskActionTypes.DeleteMainTasks;
-
-  constructor(public payload: { taskIds: string[] }) {
-  }
-}
-
-export class UndoDeleteTask implements Action {
-  readonly type: string = TaskActionTypes.UndoDeleteTask;
-}
-
-export class MoveSubTask implements Action {
-  readonly type: string = TaskActionTypes.MoveSubTask;
-
-  constructor(public payload: {
+export const moveSubTask = createAction(
+  '[Task] Move sub task',
+  (taskProps: {
     taskId: string;
     srcTaskId: string;
     targetTaskId: string;
-    newOrderedIds: string[];
-  }) {
-  }
-}
+    afterTaskId: string | null;
+  }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.taskId,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class MoveSubTaskUp implements Action {
-  readonly type: string = TaskActionTypes.MoveSubTaskUp;
+export const moveSubTaskUp = createAction(
+  '[Task] Move up',
+  (taskProps: { id: string; parentId: string }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.id,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { id: string; parentId: string }) {
-  }
-}
+export const moveSubTaskDown = createAction(
+  '[Task] Move down',
+  (taskProps: { id: string; parentId: string }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.id,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class MoveSubTaskDown implements Action {
-  readonly type: string = TaskActionTypes.MoveSubTaskDown;
+export const moveSubTaskToTop = createAction(
+  '[Task] Move to top',
+  (taskProps: { id: string; parentId: string }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.id,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { id: string; parentId: string }) {
-  }
-}
+export const moveSubTaskToBottom = createAction(
+  '[Task] Move to bottom',
+  (taskProps: { id: string; parentId: string }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.id,
+      opType: OpType.Move,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class AddTimeSpent implements Action {
-  readonly type: string = TaskActionTypes.AddTimeSpent;
+export const removeTimeSpent = createAction(
+  '[Task] Remove time spent',
+  (taskProps: { id: string; date: string; duration: number }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.id,
+      opType: OpType.Update,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-  constructor(public payload: { task: Task; date: string; duration: number }) {
-  }
-}
+export const addSubTask = createAction(
+  '[Task] Add SubTask',
+  (taskProps: { task: Task; parentId: string; isIgnoreShortSyntax?: boolean }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityId: taskProps.task.id,
+      opType: OpType.Create,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-export class RemoveTimeSpent implements Action {
-  readonly type: string = TaskActionTypes.RemoveTimeSpent;
+export const toggleStart = createAction('[Task] Toggle start');
 
-  constructor(public payload: { id: string; date: string; duration: number }) {
-  }
-}
+export const roundTimeSpentForDay = createAction(
+  '[Task] RoundTimeSpentForDay',
+  (taskProps: {
+    day: string;
+    taskIds: string[];
+    roundTo: RoundTimeOption;
+    isRoundUp: boolean;
+    projectId?: string | null;
+  }) => ({
+    ...taskProps,
+    meta: {
+      isPersistent: true,
+      entityType: 'TASK',
+      entityIds: taskProps.taskIds,
+      opType: OpType.Update,
+      isBulk: true,
+    } satisfies PersistentActionMeta,
+  }),
+);
 
-// Reminder Actions
-export class AddTaskReminder implements Action {
-  readonly type: string = TaskActionTypes.AddTaskReminder;
+export const addNewTagsFromShortSyntax = createAction(
+  '[Task] Add new tags from short syntax',
 
-  constructor(public payload: { task: Task; remindAt: number; isMoveToBacklog: boolean }) {
-  }
-}
-
-export class UpdateTaskReminder implements Action {
-  readonly type: string = TaskActionTypes.UpdateTaskReminder;
-
-  constructor(public payload: { id: string; title: string; reminderId: string; remindAt: number }) {
-  }
-}
-
-export class RemoveTaskReminder implements Action {
-  readonly type: string = TaskActionTypes.RemoveTaskReminder;
-
-  constructor(public payload: { id: string; reminderId: string }) {
-  }
-}
-
-export class RestoreTask implements Action {
-  readonly type: string = TaskActionTypes.RestoreTask;
-
-  constructor(public payload: { task: TaskWithSubTasks; subTasks: Task[] }) {
-  }
-}
-
-export class AddSubTask implements Action {
-  readonly type: string = TaskActionTypes.AddSubTask;
-
-  constructor(public payload: { task: Task; parentId: string }) {
-  }
-}
-
-export class ConvertToMainTask implements Action {
-  readonly type: string = TaskActionTypes.ConvertToMainTask;
-
-  constructor(public payload: { task: Task; parentTagIds: string[] }) {
-  }
-}
-
-export class MoveToArchive implements Action {
-  readonly type: string = TaskActionTypes.MoveToArchive;
-
-  constructor(public payload: { tasks: TaskWithSubTasks[] }) {
-  }
-}
-
-export class MoveToOtherProject implements Action {
-  readonly type: string = TaskActionTypes.MoveToOtherProject;
-
-  constructor(public payload: { task: TaskWithSubTasks; targetProjectId: string }) {
-  }
-}
-
-export class ToggleStart implements Action {
-  readonly type: string = TaskActionTypes.ToggleStart;
-}
-
-export class RoundTimeSpentForDay implements Action {
-  readonly type: string = TaskActionTypes.RoundTimeSpentForDay;
-
-  constructor(public payload: { day: string; taskIds: string[]; roundTo: RoundTimeOption; isRoundUp: boolean; projectId?: string | null }) {
-  }
-}
-
-export type TaskActions
-  = SetCurrentTask
-  | SetSelectedTask
-  | UnsetCurrentTask
-  | AddTask
-  | UpdateTaskUi
-  | ToggleTaskShowSubTasks
-  | UpdateTask
-  | UpdateTasks
-  | UpdateTaskTags
-  | RemoveTagsForAllTasks
-  | DeleteTask
-  | DeleteMainTasks
-  | UndoDeleteTask
-  | MoveSubTask
-  | MoveSubTaskUp
-  | MoveSubTaskDown
-  | AddTimeSpent
-  | RemoveTimeSpent
-  | AddTaskReminder
-  | UpdateTaskReminder
-  | RemoveTaskReminder
-  | RestoreTask
-  | AddSubTask
-  | ConvertToMainTask
-  | ToggleStart
-  | RoundTimeSpentForDay
-  | MoveToOtherProject
-  | MoveToArchive;
-
+  props<{
+    taskId: string;
+    newTitles: string[];
+  }>(),
+);

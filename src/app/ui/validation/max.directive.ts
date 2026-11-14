@@ -1,31 +1,39 @@
-import { Directive, forwardRef, Input, OnChanges, OnInit, SimpleChanges } from '@angular/core';
+import {
+  Directive,
+  forwardRef,
+  input,
+  OnChanges,
+  OnInit,
+  SimpleChanges,
+} from '@angular/core';
 import { AbstractControl, NG_VALIDATORS, Validator, ValidatorFn } from '@angular/forms';
 
 import { maxValidator } from './max.validator';
 
-const MAX_VALIDATOR: any = {
+const MAX_VALIDATOR = {
   provide: NG_VALIDATORS,
   useExisting: forwardRef(() => MaxDirective),
-  multi: true
+  multi: true,
 };
 
 @Directive({
   selector: '[max][formControlName],[max][formControl],[max][ngModel]',
-  providers: [MAX_VALIDATOR]
+  providers: [MAX_VALIDATOR],
 })
 export class MaxDirective implements Validator, OnInit, OnChanges {
-  @Input() max?: number;
+  readonly max = input<number>();
 
   private _validator?: ValidatorFn;
-  private _onChange?: (() => void);
+  private _onChange?: () => void;
 
-  ngOnInit() {
-    if (typeof this.max === 'number') {
-      this._validator = maxValidator(this.max);
+  ngOnInit(): void {
+    const max = this.max();
+    if (typeof max === 'number') {
+      this._validator = maxValidator(max);
     }
   }
 
-  ngOnChanges(changes: SimpleChanges) {
+  ngOnChanges(changes: SimpleChanges): void {
     for (const key in changes) {
       if (key === 'max') {
         this._validator = maxValidator(changes[key].currentValue);
@@ -36,9 +44,11 @@ export class MaxDirective implements Validator, OnInit, OnChanges {
     }
   }
 
-  validate(c: AbstractControl): ({ [key: string]: any }) | null {
+  validate(c: AbstractControl): { [key: string]: unknown } | null {
     if (this._validator) {
-      return this._validator(c) as { [key: string]: any };
+      return this._validator(c) as {
+        [key: string]: unknown;
+      };
     }
     return null;
   }

@@ -1,19 +1,16 @@
-@import "../../../../variables";
-
 :host {
   display: block;
+  pointer-events: none;
+  // needed because we have inline content and otherwise the height expands
+  line-height: 0;
 }
 
 .tags-container {
+  display: inline-block;
   position: relative;
   //margin-left: 50px;
   // Magic number to align icon with task text
   user-select: none;
-  margin: 0 0 ($s*.5) 4px;
-
-  &.isDisableEdit {
-    pointer-events: none;
-  }
 }
 
 .tags {
@@ -24,4 +21,11 @@
   justify-content: flex-start;
   align-items: center;
   flex-wrap: wrap;
+  gap: var(--s-half);
+}
+
+// The list ignores pointer events so clicks reach the row; only the project
+// chip takes them, to open its project.
+.project-tag {
+  pointer-events: auto;
 }

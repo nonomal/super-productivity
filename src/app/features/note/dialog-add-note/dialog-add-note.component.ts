@@ -1,71 +1,96 @@
-import { ChangeDetectionStrategy, Component, Inject } from '@angular/core';
-import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
-import { NoteService } from '../note.service';
-import { Reminder } from '../../reminder/reminder.model';
-import { SS_NOTE_TMP } from '../../../core/persistence/ls-keys.const';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { SS } from '../../../core/persistence/storage-keys.const';
 import { T } from '../../../t.const';
-import { WorkContextService } from '../../work-context/work-context.service';
-import { Observable } from 'rxjs';
-import { WorkContextType } from '../../work-context/work-context.model';
-import { map } from 'rxjs/operators';
+import { DialogFullscreenMarkdownComponent } from '../../../ui/dialog-fullscreen-markdown/dialog-fullscreen-markdown.component';
+import { NoteService } from '../note.service';
+import { FormsModule } from '@angular/forms';
+import { MarkdownComponent } from 'ngx-markdown';
+import { MatButtonToggle, MatButtonToggleGroup } from '@angular/material/button-toggle';
+import { MatTooltip } from '@angular/material/tooltip';
+import { MatIcon } from '@angular/material/icon';
+import { MatButton, MatIconButton } from '@angular/material/button';
+import { TranslatePipe } from '@ngx-translate/core';
+import { SnackService } from '../../../core/snack/snack.service';
+import { IS_MOBILE } from 'src/app/util/is-mobile';
+import { LiveMarkdownEditorComponent } from '../../../ui/inline-markdown/live-markdown/live-markdown-editor.component';
 
 @Component({
-  selector: 'dialog-add-note',
-  templateUrl: './dialog-add-note.component.html',
-  styleUrls: ['./dialog-add-note.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
+  // selector: 'dialog-add-note',
+  selector: 'dialog-fullscreen-markdown',
+  templateUrl:
+    '../../../ui/dialog-fullscreen-markdown/dialog-fullscreen-markdown.component.html',
+  styleUrls: [
+    '../../../ui/dialog-fullscreen-markdown/dialog-fullscreen-markdown.component.scss',
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    FormsModule,
+    MarkdownComponent,
+    MatButtonToggleGroup,
+    MatButtonToggle,
+    MatTooltip,
+    MatIcon,
+    MatButton,
+    MatIconButton,
+    TranslatePipe,
+    LiveMarkdownEditorComponent,
+  ],
 })
-export class DialogAddNoteComponent {
-  T: typeof T = T;
-  noteContent: string;
-  reminderDate?: number;
-  isSubmitted: boolean = false;
-  isInProjectContext$: Observable<boolean> = this._workContextService.activeWorkContextTypeAndId$.pipe(
-    map(({activeType}) => activeType === WorkContextType.PROJECT)
-  );
+export class DialogAddNoteComponent extends DialogFullscreenMarkdownComponent {
+  // override _matDialogRef: MatDialogRef<DialogAddNoteComponent> =
+  //   inject<MatDialogRef<DialogAddNoteComponent>>(MatDialogRef);
+  private _noteService = inject(NoteService);
+  private _snackService = inject(SnackService);
 
-  constructor(
-    private _matDialogRef: MatDialogRef<DialogAddNoteComponent>,
-    private _noteService: NoteService,
-    private _workContextService: WorkContextService,
-    @Inject(MAT_DIALOG_DATA) public data: { reminder: Reminder },
-  ) {
-    this.noteContent = sessionStorage.getItem(SS_NOTE_TMP) || '';
+  override T: typeof T = T;
+
+  constructor() {
+    super();
+    this.data = { content: sessionStorage.getItem(SS.NOTE_TMP) || '' };
+    // A new note's true original is empty, so recovered sessionStorage content
+    // counts as modified and gets the discard confirmation.
+    this._initialContent = '';
   }
 
-  keydownHandler(ev: KeyboardEvent) {
-    if (ev.key === 'Enter' && ev.ctrlKey) {
-      this.submit();
+  override close(isSkipSave: boolean = false, isEscapeClose: boolean = false): void {
+    if (isSkipSave && !isEscapeClose) {
+      this._confirmDiscardIfNeeded(() => this.closeAfterConfirmedDiscard());
+      return;
     }
-  }
-
-  submit() {
-    const remindAt = this.reminderDate;
-
-    if (!this.isSubmitted
-      && (this.noteContent && this.noteContent.trim().length > 0
-        || remindAt)) {
-      this._noteService.add(
-        {content: this.noteContent},
-        remindAt,
-        true,
-      );
-
-      this.isSubmitted = true;
+    if (IS_MOBILE) {
+      window.history.back();
+    }
+    if (
+      !isEscapeClose &&
+      !isSkipSave &&
+      this.data?.content &&
+      this.data.content.trim().length > 0
+    ) {
+      this._noteService.add({ content: this.data.content }, true);
+      this._snackService.open({
+        type: 'SUCCESS',
+        msg: this.T.F.NOTE.S.NOTE_ADDED,
+        ico: 'comment',
+      });
       this._clearSessionStorage();
-      this.close();
     }
-  }
-
-  close() {
     this._matDialogRef.close();
   }
 
-  saveTmp(val: string = this.noteContent || '') {
-    sessionStorage.setItem(SS_NOTE_TMP, val);
+  override closeAfterConfirmedDiscard(): void {
+    this._clearSessionStorage();
+    if (IS_MOBILE) {
+      window.history.back();
+    }
+    this._matDialogRef.close();
   }
 
-  private _clearSessionStorage() {
-    sessionStorage.setItem(SS_NOTE_TMP, '');
+  override ngModelChange(val: string = this.data?.content || ''): void {
+    super.ngModelChange(val);
+    sessionStorage.setItem(SS.NOTE_TMP, val);
+  }
+
+  private _clearSessionStorage(): void {
+    sessionStorage.removeItem(SS.NOTE_TMP);
   }
 }
